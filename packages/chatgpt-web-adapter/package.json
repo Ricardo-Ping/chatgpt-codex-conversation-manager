@@ -1,6 +1,6 @@
 {
   "name": "@cgn/chatgpt-web-adapter",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

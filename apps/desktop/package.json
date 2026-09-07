@@ -1,6 +1,6 @@
 {
   "name": "@cgn/desktop",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "private": true,
   "type": "module",
   "description": "Desktop conversation navigator for ChatGPT and Codex",
@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.main.json && vite build",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "test": "vitest run --exclude dist/**",
     "dev": "pnpm -w build && electron .",
     "start": "electron .",
     "package:win": "pnpm -w build && electron-builder --win nsis portable"
@@ -17,6 +18,7 @@
     "@cgn/chatgpt-web-adapter": "workspace:*",
     "@cgn/codex-app-server-adapter": "workspace:*",
     "@cgn/conversation-domain": "workspace:*",
+    "electron-updater": "6.8.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -28,13 +30,19 @@
     "electron": "^44.2.0",
     "electron-builder": "^26.15.3",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
   },
   "build": {
     "appId": "com.ricardoping.cgn.desktop",
     "productName": "CGN Desktop",
     "directories": {
       "output": "../../release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Ricardo-Ping",
+      "repo": "chatgpt-codex-conversation-navigator-desktop"
     },
     "files": [
       "dist/**/*",
@@ -48,7 +56,10 @@
       }
     ],
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "nsis": {
       "artifactName": "CGN-Desktop-${version}-setup-${arch}.${ext}",

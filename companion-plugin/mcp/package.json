@@ -1,6 +1,6 @@
 {
   "name": "@cgn/companion-mcp",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
   "type": "module",
   "bin": {
     "cgn-desktop-mcp": "dist/index.js"

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { filterConversations, type AgeFilter, type ManagedConversation } from "@cgn/conversation-domain";
 import type { CodexThread } from "@cgn/codex-app-server-adapter";
+import type { UpdateState } from "./global.js";
 import "./styles.css";
 
 type Mode = "chatgpt" | "codex" | "settings";
@@ -233,9 +234,53 @@ function ThreadDetail({ thread, onFork }: { thread: CodexThread | null; onFork(t
 }
 
 function Settings() {
+  const [update, setUpdate] = useState<UpdateState | null>(null);
+  const [updateError, setUpdateError] = useState("");
+
+  useEffect(() => {
+    const unsubscribe = window.cgn.updates.onState(setUpdate);
+    void window.cgn.updates.getState().then(setUpdate).catch((cause) => setUpdateError(cause instanceof Error ? cause.message : String(cause)));
+    return unsubscribe;
+  }, []);
+
+  async function setAutoUpdate(enabled: boolean) {
+    setUpdateError("");
+    try {
+      setUpdate(await window.cgn.updates.setAutoUpdate(enabled));
+    } catch (cause) {
+      setUpdateError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function checkForUpdate() {
+    setUpdateError("");
+    try {
+      setUpdate(await window.cgn.updates.check());
+    } catch (cause) {
+      setUpdateError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  const updateBusy = update?.phase === "checking" || update?.phase === "downloading";
   return (
     <section className="settings-page">
       <p className="eyebrow">CGN Desktop</p><h1>设置与兼容性</h1>
+      <div className="settings-card">
+        <h2>应用更新</h2>
+        <label className="update-toggle">
+          <input type="checkbox" checked={update?.autoUpdate ?? true} disabled={!update} onChange={(event) => void setAutoUpdate(event.target.checked)} />
+          <span>自动检查更新（默认开启）</span>
+        </label>
+        <p className="update-status" aria-live="polite">{update?.message ?? "正在读取更新设置…"}</p>
+        {update?.phase === "downloading" && <progress max="100" value={update.percent ?? 0}>{update.percent ?? 0}%</progress>}
+        {updateError && <p className="update-error">{updateError}</p>}
+        <div className="update-actions">
+          <button className="secondary" disabled={!update || updateBusy || update.phase === "unsupported"} onClick={() => void checkForUpdate()}>手动检查更新</button>
+          {update?.phase === "downloaded" && update.canAutoInstall && <button className="secondary" onClick={() => void window.cgn.updates.install()}>重启并安装</button>}
+          {(update?.phase === "available" && !update.canAutoInstall || update?.phase === "error") && <button className="secondary" onClick={() => void window.cgn.updates.openRelease()}>打开 Release 下载</button>}
+        </div>
+        <p className="update-note">安装版会自动下载更新并在退出时安装；便携版会自动检查，但需要从 GitHub Release 手动下载新版。</p>
+      </div>
       <div className="settings-card"><h2>ChatGPT</h2><p>登录信息保存在独立的 Electron 会话 <code>persist:cgn-chatgpt</code> 中。扩展运行数据使用该会话的 <code>chrome.storage.local</code>，不会复制浏览器 Cookie。</p></div>
       <div className="settings-card"><h2>Codex</h2><p>任务通过本机 <code>codex app-server</code> 读取，不直接访问 <code>sessions/*.jsonl</code>、状态数据库或 <code>auth.json</code>。</p></div>
       <div className="settings-card"><h2>文档</h2><button className="link" onClick={() => void window.cgn.openExternal("https://developers.openai.com/codex/app-server")}>打开 Codex App Server 文档</button></div>

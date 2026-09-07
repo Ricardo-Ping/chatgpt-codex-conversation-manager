@@ -1,14 +1,19 @@
 import { app, BrowserWindow, ipcMain, session, shell, WebContentsView, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { autoUpdater } from "electron-updater";
 import { CodexAppServer } from "@cgn/codex-app-server-adapter";
 import { extensionDirectory, loadChatGptExtension } from "@cgn/chatgpt-web-adapter";
+import { DEFAULT_AUTO_UPDATE, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHAT_PARTITION = "persist:cgn-chatgpt";
 const CHAT_URL = "https://chatgpt.com/";
+const RELEASE_URL = "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-navigator-desktop/releases";
 const SIDEBAR_WIDTH = 252;
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const codex = new CodexAppServer();
 
 if (app.isPackaged) app.setAsDefaultProtocolClient("cgn");
@@ -19,6 +24,78 @@ let chatAttached = false;
 let chatSecurityInstalled = false;
 const securedChatContents = new Set<number>();
 const deleteConfirmations = new Map<string, { ids: string[]; fingerprint: string; expiresAt: number }>();
+const canAutoInstallUpdate = supportsAutomaticInstallation(app.isPackaged, process.platform, process.env.PORTABLE_EXECUTABLE_FILE);
+let autoUpdateEnabled = DEFAULT_AUTO_UPDATE;
+let updateStartupTimer: NodeJS.Timeout | null = null;
+let updateInterval: NodeJS.Timeout | null = null;
+let updateState = {
+  phase: app.isPackaged ? "idle" : "unsupported",
+  currentVersion: app.getVersion(),
+  version: null as string | null,
+  percent: null as number | null,
+  message: app.isPackaged ? "等待检查更新" : "开发模式不检查更新",
+  autoUpdate: autoUpdateEnabled,
+  canAutoInstall: canAutoInstallUpdate
+};
+
+function publishUpdateState(patch: Partial<typeof updateState>): void {
+  updateState = { ...updateState, ...patch };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("update:state", updateState);
+}
+
+async function loadUpdatePreference(): Promise<boolean> {
+  try {
+    const raw = await readFile(join(app.getPath("userData"), "update-preferences.json"), "utf8");
+    return parseAutoUpdatePreference((JSON.parse(raw) as { autoUpdate?: unknown }).autoUpdate);
+  } catch {
+    return DEFAULT_AUTO_UPDATE;
+  }
+}
+
+async function saveUpdatePreference(value: boolean): Promise<void> {
+  const directory = app.getPath("userData");
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "update-preferences.json"), `${JSON.stringify({ autoUpdate: value }, null, 2)}\n`, "utf8");
+}
+
+async function checkForUpdates(): Promise<void> {
+  if (!app.isPackaged || updateState.phase === "checking" || updateState.phase === "downloading") return;
+  publishUpdateState({ phase: "checking", percent: null, message: "正在检查 GitHub Releases…" });
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch {
+    publishUpdateState({ phase: "error", message: "检查更新失败，请稍后重试" });
+  }
+}
+
+function scheduleAutomaticUpdates(): void {
+  if (updateStartupTimer) clearTimeout(updateStartupTimer);
+  if (updateInterval) clearInterval(updateInterval);
+  updateStartupTimer = null;
+  updateInterval = null;
+  if (!app.isPackaged || !autoUpdateEnabled) return;
+  updateStartupTimer = setTimeout(() => void checkForUpdates(), 10_000);
+  updateInterval = setInterval(() => void checkForUpdates(), UPDATE_CHECK_INTERVAL_MS);
+  updateStartupTimer.unref();
+  updateInterval.unref();
+}
+
+function configureUpdater(): void {
+  autoUpdater.allowPrerelease = app.getVersion().includes("-");
+  autoUpdater.autoDownload = canAutoInstallUpdate;
+  autoUpdater.autoInstallOnAppQuit = canAutoInstallUpdate;
+  autoUpdater.logger = null;
+  autoUpdater.on("checking-for-update", () => publishUpdateState({ phase: "checking", percent: null, message: "正在检查 GitHub Releases…" }));
+  autoUpdater.on("update-available", (info) => publishUpdateState({
+    phase: "available",
+    version: info.version,
+    message: canAutoInstallUpdate ? `发现 v${info.version}，正在下载` : `发现 v${info.version}，请前往 Release 下载`
+  }));
+  autoUpdater.on("update-not-available", (info) => publishUpdateState({ phase: "not-available", version: info.version, percent: null, message: "当前已是最新版本" }));
+  autoUpdater.on("download-progress", (progress) => publishUpdateState({ phase: "downloading", percent: Math.round(progress.percent), message: `正在下载更新 ${Math.round(progress.percent)}%` }));
+  autoUpdater.on("update-downloaded", (info) => publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，可重启安装` }));
+  autoUpdater.on("error", () => publishUpdateState({ phase: "error", message: "更新失败，请手动打开 Release 页面" }));
+}
 
 function allowedRemoteUrl(raw: string): boolean {
   try {
@@ -155,6 +232,39 @@ ipcMain.handle("app:version", (event) => {
   return app.getVersion();
 });
 
+ipcMain.handle("update:get-state", (event) => {
+  requireRenderer(event);
+  return updateState;
+});
+
+ipcMain.handle("update:set-auto", async (event, value: unknown) => {
+  requireRenderer(event);
+  if (typeof value !== "boolean") throw new Error("Invalid update preference");
+  await saveUpdatePreference(value);
+  autoUpdateEnabled = value;
+  publishUpdateState({ autoUpdate: value });
+  scheduleAutomaticUpdates();
+  if (value) void checkForUpdates();
+  return updateState;
+});
+
+ipcMain.handle("update:check", async (event) => {
+  requireRenderer(event);
+  await checkForUpdates();
+  return updateState;
+});
+
+ipcMain.handle("update:install", (event) => {
+  requireRenderer(event);
+  if (!canAutoInstallUpdate || updateState.phase !== "downloaded") throw new Error("Update is not ready to install");
+  autoUpdater.quitAndInstall(false, true);
+});
+
+ipcMain.handle("update:open-release", async (event) => {
+  requireRenderer(event);
+  await shell.openExternal(RELEASE_URL);
+});
+
 ipcMain.handle("external:open", async (event, value: unknown) => {
   requireRenderer(event);
   if (typeof value !== "string" || !/^https:\/\//i.test(value)) throw new Error("Invalid external URL");
@@ -245,11 +355,19 @@ ipcMain.handle("codex:batch", async (event, value: unknown) => {
   return { succeeded, failed };
 });
 
-app.whenReady().then(createWindow).catch((error) => {
+app.whenReady().then(async () => {
+  autoUpdateEnabled = await loadUpdatePreference();
+  updateState = { ...updateState, currentVersion: app.getVersion(), autoUpdate: autoUpdateEnabled };
+  configureUpdater();
+  await createWindow();
+  scheduleAutomaticUpdates();
+}).catch((error) => {
   console.error(error);
   app.quit();
 });
 app.on("window-all-closed", () => {
+  if (updateStartupTimer) clearTimeout(updateStartupTimer);
+  if (updateInterval) clearInterval(updateInterval);
   codex.close();
   if (process.platform !== "darwin") app.quit();
 });

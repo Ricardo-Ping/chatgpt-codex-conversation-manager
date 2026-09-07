@@ -34,7 +34,7 @@ function fingerprint(records: CodexThread[]): string {
   return records.map((record) => `${record.id}:${record.updatedAt}:${record.status?.type ?? "unknown"}`).sort().join("|");
 }
 
-const server = new McpServer({ name: "cgn-desktop", version: "0.1.0-preview.1" });
+const server = new McpServer({ name: "cgn-desktop", version: "0.1.0-preview.2" });
 
 server.registerTool("desktop_status", {
   description: "Check whether the local Codex App Server is available.",

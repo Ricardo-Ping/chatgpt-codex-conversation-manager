@@ -58,5 +58,12 @@ pre { overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/
 .settings-card { margin-top: 14px; padding: 18px; border: 1px solid #d5e3e6; border-radius: 15px; background: white; }
 .settings-card h2 { font-size: 17px; }
 .settings-card p { margin-bottom: 0; color: #526b72; line-height: 1.65; }
+.update-toggle { display: flex; align-items: center; gap: 9px; color: #274b53; }
+.update-toggle input { width: 17px; height: 17px; accent-color: #159f9a; }
+.update-status { margin: 12px 0 8px !important; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.update-note { margin-top: 10px !important; font-size: 13px; }
+.update-error { color: #9c2727 !important; }
+progress { width: min(420px,100%); height: 8px; accent-color: #159f9a; }
 code { background: #edf4f5; border-radius: 5px; padding: 2px 5px; }
 @media (max-width: 1100px) { .content-grid { grid-template-columns: 1fr; height: auto; } .thread-list, .thread-detail { max-height: 46vh; } }

@@ -10,6 +10,7 @@ This repository is the desktop counterpart of [ChatGPT Conversation Navigator](h
 - Existing ChatGPT scan, search, jump, collapse, node, branch, and conversation-management UI.
 - Codex active/archived task list, task reading, search, fork, archive, restore, and delete.
 - ChatGPT extension settings and indexes stored inside the isolated Electron profile.
+- GitHub Release update checks, enabled by default, plus a manual check in Settings.
 - Context isolation, sandboxed renderers, origin-checked IPC, and external-link restrictions.
 
 The ChatGPT history manager still depends on ChatGPT's private web endpoints. It stops write operations when compatibility validation fails and never falls back to automated DOM deletion.
@@ -48,7 +49,7 @@ pnpm build
 pnpm package:win
 ```
 
-Unsigned preview builds may trigger Windows SmartScreen. The project does not silently update itself.
+Unsigned preview builds may trigger Windows SmartScreen. The installed build checks GitHub Releases automatically, downloads compatible updates, and installs them when the app exits or when you choose “Restart and install”. Automatic checks can be disabled in Settings. The portable build checks for updates but requires a manual download from the Release page.
 
 ## Project layout
 
@@ -67,4 +68,4 @@ The app does not persist ChatGPT access tokens, duplicate ChatGPT cookies, read 
 
 ## Status
 
-`v0.1.0-preview.1` is a technical preview. ChatGPT OAuth compatibility, macOS signing/notarization, companion-plugin installation, and destructive real-account smoke tests require separate verification before a stable release.
+`v0.1.0-preview.2` is a technical preview. ChatGPT OAuth compatibility, macOS signing/notarization, companion-plugin installation, and destructive real-account smoke tests require separate verification before a stable release.
