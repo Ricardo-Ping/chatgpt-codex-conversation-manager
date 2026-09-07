@@ -68,7 +68,7 @@ export class CodexAppServer {
     child.once("exit", (code) => this.#failAll(new Error(`Codex App Server exited (${code ?? "unknown"})`)));
 
     await this.#requestRaw("initialize", {
-      clientInfo: { name: "cgn-desktop", title: "CGN Desktop", version: "0.1.0-preview.2" },
+      clientInfo: { name: "cgn-desktop", title: "CGN Desktop", version: "0.1.0-preview.3" },
       capabilities: null
     });
     this.#send({ method: "initialized" });

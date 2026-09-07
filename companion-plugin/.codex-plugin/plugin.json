@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-codex-conversation-navigator-desktop",
-  "version": "0.1.0-preview.2",
+  "version": "0.1.0-preview.3",
   "description": "Find and manage local Codex conversations with CGN Desktop.",
   "repository": "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-navigator-desktop",
   "mcpServers": "./.mcp.json",

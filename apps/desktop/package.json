@@ -1,6 +1,6 @@
 {
   "name": "@cgn/desktop",
-  "version": "0.1.0-preview.2",
+  "version": "0.1.0-preview.3",
   "private": true,
   "type": "module",
   "description": "Desktop conversation navigator for ChatGPT and Codex",

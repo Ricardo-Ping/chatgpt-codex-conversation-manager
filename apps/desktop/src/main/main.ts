@@ -3,10 +3,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 import { CodexAppServer } from "@cgn/codex-app-server-adapter";
 import { extensionDirectory, loadChatGptExtension } from "@cgn/chatgpt-web-adapter";
 import { DEFAULT_AUTO_UPDATE, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
+
+const { autoUpdater } = electronUpdater;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHAT_PARTITION = "persist:cgn-chatgpt";
