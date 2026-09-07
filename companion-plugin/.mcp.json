@@ -1,0 +1,6 @@
+{
+  "cgn-desktop": {
+    "command": "cgn-desktop-mcp",
+    "args": ["--stdio"]
+  }
+}

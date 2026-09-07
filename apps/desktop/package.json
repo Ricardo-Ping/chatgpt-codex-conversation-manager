@@ -1,0 +1,62 @@
+{
+  "name": "@cgn/desktop",
+  "version": "0.1.0-preview.1",
+  "private": true,
+  "type": "module",
+  "description": "Desktop conversation navigator for ChatGPT and Codex",
+  "author": "Ricardo Ping",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.main.json && vite build",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "dev": "pnpm -w build && electron .",
+    "start": "electron .",
+    "package:win": "pnpm -w build && electron-builder --win nsis portable"
+  },
+  "dependencies": {
+    "@cgn/chatgpt-web-adapter": "workspace:*",
+    "@cgn/codex-app-server-adapter": "workspace:*",
+    "@cgn/conversation-domain": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.13",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "build": {
+    "appId": "com.ricardoping.cgn.desktop",
+    "productName": "CGN Desktop",
+    "directories": {
+      "output": "../../release"
+    },
+    "files": [
+      "dist/**/*",
+      "src/preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../packages/chatgpt-web-adapter/vendor/extension",
+        "to": "chatgpt-extension"
+      }
+    ],
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "artifactName": "CGN-Desktop-${version}-setup-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "CGN-Desktop-${version}-portable-${arch}.${ext}"
+    }
+  }
+}

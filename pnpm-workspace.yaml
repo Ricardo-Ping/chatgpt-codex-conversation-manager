@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+  - companion-plugin/mcp
+
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true

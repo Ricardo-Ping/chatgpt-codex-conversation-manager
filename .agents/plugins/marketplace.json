@@ -1,0 +1,20 @@
+{
+  "name": "cgn-desktop-local",
+  "interface": {
+    "displayName": "CGN Desktop Local"
+  },
+  "plugins": [
+    {
+      "name": "chatgpt-codex-conversation-navigator-desktop",
+      "source": {
+        "source": "local",
+        "path": "./companion-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "chatgpt-codex-conversation-navigator-desktop",
+  "version": "0.1.0-preview.1",
+  "description": "Find and manage local Codex conversations with CGN Desktop.",
+  "repository": "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-navigator-desktop",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "CGN Desktop",
+    "shortDescription": "Find, organize, archive, restore, and delete Codex tasks",
+    "developerName": "Ricardo Ping",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"]
+  }
+}
