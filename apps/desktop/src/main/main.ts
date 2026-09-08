@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import electronUpdater from "electron-updater";
 import { ChatGptBridgeServer, ConversationIndexStore, type CachedConversation } from "@conversation-manager/chatgpt-bridge-server";
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
+import { discoverCodexCommands } from "./codex-discovery.js";
 import { DEFAULT_AUTO_UPDATE, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
 
 const { autoUpdater } = electronUpdater;
@@ -16,6 +17,7 @@ const CHATGPT_URL = "https://chatgpt.com/";
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 let codexCommand = "codex";
 let codex = new CodexAppServer(codexCommand);
+let codexConnection: Promise<boolean> | null = null;
 let mainWindow: BrowserWindow | null = null;
 let bridge: ChatGptBridgeServer;
 let indexStore: ConversationIndexStore;
@@ -41,6 +43,23 @@ async function createWindow(): Promise<void> {
 function publishUpdateState(patch: Partial<typeof updateState>): void { updateState = { ...updateState, ...patch }; mainWindow?.webContents.send("update:state", updateState); }
 async function loadUpdatePreference(): Promise<boolean> { for (const file of [join(app.getPath("userData"), "update-preferences.json"), join(app.getPath("appData"), "CGN Desktop", "update-preferences.json")]) { try { return parseAutoUpdatePreference((JSON.parse(await readFile(file, "utf8")) as { autoUpdate?: unknown }).autoUpdate); } catch {} } return DEFAULT_AUTO_UPDATE; }
 async function saveUpdatePreference(value: boolean): Promise<void> { await mkdir(app.getPath("userData"), { recursive: true }); await writeFile(join(app.getPath("userData"), "update-preferences.json"), `${JSON.stringify({ autoUpdate: value }, null, 2)}\n`, "utf8"); }
+async function connectCodex(): Promise<boolean> {
+  if (codexConnection) return codexConnection;
+  codexConnection = (async () => {
+    try { await codex.start(); return true; } catch {}
+    for (const command of await discoverCodexCommands()) {
+      if (command === codexCommand) continue;
+      const candidate = new CodexAppServer(command);
+      try {
+        await candidate.start(); codex.close(); codex = candidate; codexCommand = command;
+        await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8");
+        return true;
+      } catch { candidate.close(); }
+    }
+    return false;
+  })();
+  try { return await codexConnection; } finally { codexConnection = null; }
+}
 async function checkForUpdates(): Promise<void> { if (!app.isPackaged || ["checking", "downloading"].includes(updateState.phase)) return; publishUpdateState({ phase: "checking", percent: null, message: "正在检查 GitHub Releases…" }); try { await autoUpdater.checkForUpdates(); } catch { publishUpdateState({ phase: "error", message: "检查更新失败，请稍后重试" }); } }
 function scheduleAutomaticUpdates(): void { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); updateStartupTimer = null; updateInterval = null; if (!app.isPackaged || !autoUpdateEnabled) return; updateStartupTimer = setTimeout(() => void checkForUpdates(), 10_000); updateInterval = setInterval(() => void checkForUpdates(), UPDATE_CHECK_INTERVAL_MS); updateStartupTimer.unref(); updateInterval.unref(); }
 function configureUpdater(): void {
@@ -79,7 +98,7 @@ ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
 
-ipcMain.handle("codex:status", async (event) => { requireRenderer(event); try { await codex.start(); return { available: true, message: "已连接本机 Codex", command: codexCommand }; } catch { return { available: false, message: "未找到可用的 Codex CLI 或 App Server", command: codexCommand }; } });
+ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? "已连接本机 Codex App Server" : "已自动连接 ChatGPT/Codex 桌面客户端内置 App Server") : "未找到 ChatGPT/Codex 桌面客户端或可用的 Codex App Server", command: codexCommand }; });
 ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const result = await dialog.showOpenDialog(mainWindow, { title: "选择 Codex 可执行文件", properties: ["openFile"], filters: [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }] }); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
 ipcMain.handle("codex:list", async (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return codex.list({ cursor: typeof input.cursor === "string" ? input.cursor : null, limit: 100, archived: input.archived === true, searchTerm: typeof input.searchTerm === "string" ? input.searchTerm.slice(0, 200) : null, full: input.full === true }); });
 ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); const id = requireId(value); try { const child = process.platform === "win32" ? spawn("powershell.exe", ["-NoExit", "-EncodedCommand", Buffer.from(`& '${codexCommand.replaceAll("'", "''")}' resume '${id}'`, "utf16le").toString("base64")], { detached: true, stdio: "ignore", windowsHide: false }) : spawn(codexCommand, ["resume", id], { detached: true, stdio: "ignore" }); child.unref(); return { opened: true }; } catch { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; } });

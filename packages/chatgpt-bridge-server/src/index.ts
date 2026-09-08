@@ -73,7 +73,8 @@ export class ChatGptBridgeServer {
     try {
       res.setHeader("Cache-Control", "no-store");
       if (req.method === "GET" && req.url === "/v1/health") { const state = this.state(); return json(res, 200, { protocolVersion: 1, paired: state.paired, connected: state.connected }); }
-      if (req.method === "POST" && req.url === "/v1/pair") { const origin = req.headers.origin; if (origin && !origin.startsWith("chrome-extension://") && !origin.startsWith("extension://")) return json(res, 403, { error: "invalid_origin" }); return await this.#pair(req, res); }
+      if (req.method === "POST" && req.url === "/v1/pair/auto") { if (!isExtensionOrigin(req.headers.origin)) return json(res, 403, { error: "invalid_origin" }); return await this.#pairAutomatically(res); }
+      if (req.method === "POST" && req.url === "/v1/pair") { const origin = req.headers.origin; if (origin && !isExtensionOrigin(origin)) return json(res, 403, { error: "invalid_origin" }); return await this.#pair(req, res); }
       if (!this.#authorize(req)) return json(res, 401, { error: "unauthorized" });
       this.#lastSeen = Date.now();
       if (req.method === "GET" && req.url === "/v1/commands") return json(res, 200, this.#commands.splice(0, 20));
@@ -104,6 +105,15 @@ export class ChatGptBridgeServer {
     json(res, 200, { protocolVersion: 1, secret: this.#secret.toString("base64url") });
   }
 
+  async #pairAutomatically(res: ServerResponse): Promise<void> {
+    if (this.#secret) return json(res, 409, { error: "already_paired" });
+    this.#secret = randomBytes(32);
+    await mkdir(dirname(this.#secretFile), { recursive: true });
+    await writeFile(this.#secretFile, this.#secret.toString("base64url"), { encoding: "utf8", mode: 0o600 });
+    this.#pairing = null;
+    json(res, 200, { protocolVersion: 1, secret: this.#secret.toString("base64url") });
+  }
+
   #authorize(req: IncomingMessage): boolean {
     const value = req.headers.authorization;
     if (!this.#secret || !value?.startsWith("Bearer ")) return false;
@@ -120,6 +130,7 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   try { return JSON.parse(Buffer.concat(parts).toString("utf8")) as T; } catch { throw new BodyError(400, "invalid_json"); }
 }
 function json(res: ServerResponse, status: number, value: unknown): void { res.statusCode = status; if (status === 204) return void res.end(); res.setHeader("Content-Type", "application/json; charset=utf-8"); res.end(JSON.stringify(value)); }
+function isExtensionOrigin(origin: string | undefined): boolean { return Boolean(origin?.startsWith("chrome-extension://") || origin?.startsWith("extension://")); }
 
 export interface CachedConversation { id: string; title: string; createdAt: number | null; updatedAt: number | null; state: "active" | "archived" | "scheduled"; projectId?: string; pinned: boolean; current: boolean; automation: boolean }
 interface CacheFile { schemaVersion: 1; accounts: Record<string, { label: string; mutations?: Record<string, { action: "archive" | "restore" | "delete"; at: number }>; states: Partial<Record<CachedConversation["state"], { syncedAt: number; fullSyncedAt: number | null; records: CachedConversation[] }>> }> }

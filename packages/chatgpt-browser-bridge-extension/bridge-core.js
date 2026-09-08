@@ -55,11 +55,11 @@
     constructor(fetchImpl = fetch.bind(globalThis)) { this.fetch = fetchImpl; this.auth = null; this.controllers = new Map(); this.projects = new Map(); }
     async authenticate() {
       const sessionResponse = await this.fetch("/api/auth/session", { credentials: "include" });
-      if (!sessionResponse.ok) throw responseError(sessionResponse, "无法读取 ChatGPT 登录状态");
+      if (!sessionResponse.ok) throw await responseError(sessionResponse, "无法读取 ChatGPT 登录状态");
       const session = await sessionResponse.json(); const token = session.accessToken || session.access_token;
       if (!token) throw new BridgeError("NOT_LOGGED_IN", "请先在浏览器登录 ChatGPT");
-      const response = await this.fetch(`/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=${new Date().getTimezoneOffset()}`, { credentials: "include", headers: { Authorization: `Bearer ${token}` } });
-      if (!response.ok) throw responseError(response, "无法读取 ChatGPT 账号");
+      const response = await this.fetch(`/backend-api/accounts/check/v4-2023-04-27?timezone_offset_min=${-new Date().getTimezoneOffset()}`, { credentials: "include", headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw await responseError(response, "无法读取 ChatGPT 账号");
       const rows = accountRows(await response.json()); if (!rows.length) throw new BridgeError("INCOMPATIBLE_API", "无法识别 ChatGPT 账号结构");
       this.auth = { token, rows };
       return Promise.all(rows.map(async (row) => ({ key: await digest(row.rawId), label: row.label, isDefault: row.isDefault })));
@@ -103,19 +103,23 @@
         if (checkpoint && page.length && page.every((row) => (row.updatedAt || 0) <= checkpoint)) break;
         if (rows.length < 100) break; offset += rows.length;
       }
-      {
+      if (!archived) {
         const discovered = new Set(); const cachedProjects = this.projects.get(accountId);
         if (checkpoint && cachedProjects && Date.now() - cachedProjects.at < 120_000) for (const id of cachedProjects.ids) discovered.add(id);
-        else { let sidebarCursor = null; for (;;) { const query = new URLSearchParams({ limit: "100" }); if (sidebarCursor !== null) query.set("cursor", String(sidebarCursor)); const sidebar = await this.request(`/backend-api/gizmos/snorlax/sidebar?${query}`, accountId, { signal }); for (const id of projectIds(sidebar)) discovered.add(id); const next = sidebar?.cursor ?? sidebar?.next_cursor ?? sidebar?.nextCursor; if (next === undefined || next === null || String(next) === String(sidebarCursor)) break; sidebarCursor = next; } this.projects.set(accountId, { ids: [...discovered], at: Date.now() }); }
+        else { let sidebarCursor = null; for (;;) { const query = new URLSearchParams({ limit: "100", owned_only: "true", conversations_per_gizmo: "0" }); if (sidebarCursor !== null) query.set("cursor", String(sidebarCursor)); const sidebar = await this.request(`/backend-api/gizmos/snorlax/sidebar?${query}`, accountId, { signal }); for (const id of projectIds(sidebar)) discovered.add(id); const next = sidebar?.cursor ?? sidebar?.next_cursor ?? sidebar?.nextCursor; if (next === undefined || next === null || String(next) === String(sidebarCursor)) break; sidebarCursor = next; } this.projects.set(accountId, { ids: [...discovered], at: Date.now() }); }
         for (const projectId of discovered) {
-          let projectOffset = 0;
+          let projectCursor = 0;
           for (;;) {
-            const payload = await this.request(`/backend-api/gizmos/${encodeURIComponent(projectId)}/conversations?offset=${projectOffset}&limit=100&is_archived=${archived}`, accountId, { signal });
+            const query = new URLSearchParams({ cursor: String(projectCursor), limit: "100", owned_only: "true" });
+            const payload = await this.request(`/backend-api/gizmos/${encodeURIComponent(projectId)}/conversations?${query}`, accountId, { signal });
             const rows = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.conversations) ? payload.conversations : null;
             if (!rows) throw new BridgeError("INCOMPATIBLE_API", "项目会话接口结构已变化");
-            const page = rows.map((row) => normalize(row, archived ? "archived" : "active", { projectId })).filter(Boolean); records.push(...page);
+            const page = rows.filter((row) => Boolean(row?.is_archived) === archived).map((row) => normalize(row, archived ? "archived" : "active", { projectId })).filter(Boolean); records.push(...page);
             if (checkpoint && page.length && page.every((row) => (row.updatedAt || 0) <= checkpoint)) break;
-            if (rows.length < 100) break; projectOffset += rows.length;
+            const next = payload?.cursor ?? payload?.next_cursor ?? payload?.nextCursor;
+            if (next !== undefined && next !== null && String(next) !== String(projectCursor)) { projectCursor = next; continue; }
+            if (payload?.has_more === true && rows.length) { projectCursor = Number(projectCursor) + rows.length; continue; }
+            break;
           }
         }
       }
@@ -141,7 +145,7 @@
       const options = { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action === "delete" ? { is_visible: false } : { is_archived: action === "archive" }) };
       let response;
       for (let attempt = 0; attempt < 3; attempt += 1) { response = await this.fetch(path, { ...options, signal, credentials: "include", headers: { ...options.headers, ...this.headers(accountId) } }); if (response.status !== 429 && response.status < 500) break; await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt))); }
-      if (!response?.ok) { if (response?.status === 401 || response?.status === 403) this.auth = null; throw responseError(response, "ChatGPT 操作失败"); }
+      if (!response?.ok) { if (response?.status === 401 || response?.status === 403) this.auth = null; throw await responseError(response, "ChatGPT 操作失败"); }
       if (response.status === 204) return;
       const text = await response.text(); if (!text) throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 未返回可验证的确认结果"); let body; try { body = JSON.parse(text); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回了无法解析的确认结果"); }
       const targetConfirmed = action === "delete" ? body?.is_visible === false : Object.prototype.hasOwnProperty.call(body || {}, "is_archived") && Boolean(body.is_archived) === (action === "archive");
@@ -150,10 +154,17 @@
     }
     async request(path, accountId, options = {}) {
       const response = await this.fetch(path, { ...options, credentials: "include", headers: { ...options.headers, ...this.headers(accountId) } });
-      if (!response.ok) { if (response.status === 401 || response.status === 403) this.auth = null; throw responseError(response, "读取 ChatGPT 数据失败"); } try { return await response.json(); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回结构无法解析"); }
+      if (!response.ok) { if (response.status === 401 || response.status === 403) this.auth = null; throw await responseError(response, "读取 ChatGPT 数据失败"); } try { return await response.json(); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回结构无法解析"); }
     }
   }
-  function responseError(response, prefix) { const status = response?.status || 0; return new BridgeError(status === 401 ? "NOT_LOGGED_IN" : status === 403 ? "UNAUTHORIZED" : status === 429 ? "RATE_LIMITED" : "INCOMPATIBLE_API", `${prefix} (${status || "unknown"})`, status === 429 || status >= 500); }
+  async function responseError(response, prefix) {
+    const status = response?.status || 0; let detail = "";
+    try {
+      const body = await response.clone().json(); const value = body?.message || body?.error?.message || (typeof body?.detail === "string" ? body.detail : Array.isArray(body?.detail) ? body.detail.map((item) => item?.msg).filter(Boolean).join("；") : "");
+      if (typeof value === "string") detail = value.replace(/\s+/g, " ").slice(0, 240);
+    } catch {}
+    return new BridgeError(status === 401 ? "NOT_LOGGED_IN" : status === 403 ? "UNAUTHORIZED" : status === 429 ? "RATE_LIMITED" : "INCOMPATIBLE_API", `${prefix} (${status || "unknown"})${detail ? `：${detail}` : ""}`, status === 429 || status >= 500);
+  }
   function projectIds(payload) { const ids = new Set(); const visit = (value, depth = 0) => { if (!value || depth > 7) return; if (Array.isArray(value)) return value.forEach((item) => visit(item, depth + 1)); if (typeof value !== "object") return; const id = value.id || value.gizmo_id || value.project_id; if (typeof id === "string" && id.startsWith("g-p-")) ids.add(id); Object.values(value).forEach((item) => visit(item, depth + 1)); }; visit(payload); return [...ids]; }
   function dedupe(records) { return [...new Map(records.map((row) => [row.id, row])).values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
   return Object.freeze({ ChatGptRepository, BridgeError, accountRows, taskRows, normalize, projectIds });

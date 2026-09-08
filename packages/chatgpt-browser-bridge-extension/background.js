@@ -6,14 +6,15 @@ chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create("conversatio
 chrome.runtime.onStartup.addListener(() => void startPolling());
 chrome.alarms.onAlarm.addListener((alarm) => { if (alarm.name === "conversation-manager-poll") void startPolling(); });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "pair") { pair(String(message.code || "")).then(sendResponse, (error) => sendResponse({ ok: false, error: error.message })); return true; }
+  if (message?.type === "pair") { pair().then(sendResponse, (error) => sendResponse({ ok: false, error: error.message })); return true; }
   if (message?.type === "bridge-status") { status().then(sendResponse); return true; }
   if (message?.type === "open-chatgpt") { chrome.tabs.create({ url: "https://chatgpt.com/", active: true }); sendResponse({ ok: true }); return false; }
 });
 
-async function pair(code) {
-  const response = await fetch(`${BASE}/pair`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
-  const body = await response.json(); if (!response.ok || !body.secret) throw new Error(body.error || "配对失败");
+async function pair() {
+  const response = await fetch(`${BASE}/pair/auto`, { method: "POST" });
+  const body = await response.json();
+  if (!response.ok || !body.secret) throw new Error(body.error === "already_paired" ? "桌面端已与其他扩展配对，请先在设置中清除配对" : body.error || "配对失败");
   await chrome.storage.local.set({ bridgeSecret: body.secret }); void startPolling(); return { ok: true };
 }
 async function status() {

@@ -1,6 +1,6 @@
 {
   "name": "@conversation-manager/companion-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "bin": {
     "conversation-manager-mcp": "dist/index.js",

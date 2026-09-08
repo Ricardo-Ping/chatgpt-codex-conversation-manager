@@ -8,6 +8,20 @@ const servers: ChatGptBridgeServer[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => server.close())); });
 
 describe("ChatGptBridgeServer", () => {
+  it("pairs with one extension click and never reissues the secret", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 32000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const denied = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST" });
+    expect(denied.status).toBe(403);
+    const response = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
+    expect(response.status).toBe(200);
+    const { secret } = await response.json() as { secret: string };
+    expect((await readFile(join(dir, "secret"), "utf8")).trim()).toBe(secret);
+    const repeated = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
+    expect(repeated.status).toBe(409);
+    await expect(repeated.json()).resolves.toEqual({ error: "already_paired" });
+  });
+
   it("pairs once, rejects bad secrets and resolves commands", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
     const port = 33000 + Math.floor(Math.random() * 1000);

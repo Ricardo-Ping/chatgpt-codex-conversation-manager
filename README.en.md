@@ -13,9 +13,9 @@ Conversation Manager is a local desktop app for finding, filtering, archiving, r
 
 ## No duplicate sign-in
 
-ChatGPT uses the companion Chrome/Edge extension and your existing browser session. Start the desktop app, load the unpacked extension provided with the Release, generate a six-digit pairing code, and enter it in the extension popup. Keep a signed-in `chatgpt.com` tab open. With no ChatGPT session, cached records remain readable but write operations are disabled.
+ChatGPT uses the companion Chrome/Edge extension and your existing browser session. Start the desktop app, load the unpacked extension provided with the Release, click its toolbar icon, then click “Connect desktop manager”. This one explicit click pairs the extension; subsequent connections are automatic. Keep a signed-in `chatgpt.com` tab open. With no ChatGPT session, cached records remain readable but write operations are disabled.
 
-Codex connects to the local documented [`codex app-server`](https://developers.openai.com/codex/app-server). It does not read or copy Codex credential or session files. If `codex` is not on PATH, select the local `codex.exe`, `codex.cmd`, or `codex.bat` in Settings.
+OpenAI's unified Windows desktop client runs as `ChatGPT.exe` and includes Codex. Conversation Manager automatically discovers its bundled [`codex app-server`](https://developers.openai.com/codex/app-server), without reading or copying credential or session files. Manual executable selection appears only as a fallback. ChatGPT cloud conversations still use the browser bridge; the app server supplies Codex tasks only.
 
 ## Privacy
 
@@ -34,7 +34,7 @@ See [README.md](README.md) for the default Chinese documentation and [the implem
 
 ## Current limits
 
-`v0.2.0` supports Windows x64 with Chrome or Edge. The extension is distributed as a Release ZIP; macOS, Firefox, and direct access to the official ChatGPT desktop client's private session are not supported yet.
+`v0.2.1` supports Windows x64 with Chrome or Edge. The extension is distributed as a Release ZIP; macOS, Firefox, and direct access to the official ChatGPT desktop client's private chat database are not supported yet.
 
 ## License
 

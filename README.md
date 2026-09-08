@@ -22,16 +22,16 @@ ChatGPT 通过配套 Chrome/Edge 扩展复用浏览器中已有的登录状态�
 1. 从 [GitHub Releases](https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases) 下载并安装 Conversation Manager。
 2. 在 Chrome/Edge 的扩展管理页启用“开发者模式”，选择“加载已解压的扩展程序”。
 3. 在应用设置中点击“打开扩展目录”，选择该目录。
-4. 在应用中生成六位配对码，并在扩展弹窗输入一次。
+4. 点击浏览器工具栏中的扩展，再点“一键连接桌面管理器”。首次只需这一次显式操作，之后会自动连接。
 5. 保持一个已登录的 `chatgpt.com` 标签页打开，即可读取和管理会话。
 
 完全没有 ChatGPT 登录状态时无法读取云端会话。桥接断开后仍可查看缓存，但归档和删除会被禁用。
 
 ### Codex
 
-Codex 通过本机 `codex app-server` 读取任务，不要求在 Conversation Manager 中登录，也不读取 `auth.json`、会话 JSONL 或状态数据库。使用前需要安装并能运行 `codex` CLI。
+OpenAI 的 Windows 桌面客户端虽然以 `ChatGPT.exe` 运行，并在同一应用中提供 ChatGPT 与 Codex，但 Codex 任务仍由随客户端安装的 `codex app-server` 提供。Conversation Manager 会自动查找并连接这个内置后端，不要求再次登录，也不读取 `auth.json`、会话 JSONL 或状态数据库。
 
-如果 `codex` 不在系统 PATH 中，可在“设置 → Codex 可执行文件”中手动选择本机的 `codex.exe`、`codex.cmd` 或 `codex.bat`。
+只有自动检测失败时，设置页才显示手动选择 `codex.exe`、`codex.cmd` 或 `codex.bat` 的兜底入口。`app-server` 读取的是 Codex 任务；ChatGPT 普通云端聊天仍通过浏览器桥接读取。
 
 ## 隐私与安全
 
@@ -62,9 +62,9 @@ pnpm package:win
 
 ## 当前限制
 
-- `v0.2.0` 支持 Windows x64、Chrome 和 Edge。
+- `v0.2.1` 支持 Windows x64、Chrome 和 Edge。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
-- macOS、Firefox 和官方 ChatGPT 桌面应用本地会话接口暂不支持。
+- macOS、Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 
 ## License
 
