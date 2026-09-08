@@ -143,6 +143,10 @@ function json(res: ServerResponse, status: number, value: unknown): void {
 function isExtensionOrigin(origin: string | undefined): boolean { return Boolean(origin?.startsWith("chrome-extension://") || origin?.startsWith("extension://")); }
 
 export interface CachedConversation { id: string; title: string; createdAt: number | null; updatedAt: number | null; state: "active" | "archived" | "scheduled"; projectId?: string; pinned: boolean; current: boolean; automation: boolean }
+export const FULL_CALIBRATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export function chooseCacheSyncMode(snapshot: { fullSyncedAt: number | null } | null, forceFull: boolean, now = Date.now()): "full" | "incremental" {
+  return forceFull || !snapshot?.fullSyncedAt || now - snapshot.fullSyncedAt >= FULL_CALIBRATION_INTERVAL_MS ? "full" : "incremental";
+}
 interface CacheFile { schemaVersion: 1; accounts: Record<string, { label: string; mutations?: Record<string, { action: "archive" | "restore" | "delete"; at: number }>; states: Partial<Record<CachedConversation["state"], { syncedAt: number; fullSyncedAt: number | null; records: CachedConversation[] }>> }> }
 
 export class ConversationIndexStore {
@@ -151,7 +155,7 @@ export class ConversationIndexStore {
   constructor(file: string) { this.#file = file; }
   async load(): Promise<void> { try { const value = JSON.parse(await readFile(this.#file, "utf8")) as CacheFile; this.#data = value.schemaVersion === 1 && value.accounts && typeof value.accounts === "object" ? value : { schemaVersion: 1, accounts: {} }; } catch { this.#data = { schemaVersion: 1, accounts: {} }; } }
   accounts(): Array<{ key: string; label: string }> { return Object.entries(this.#data.accounts).map(([key, value]) => ({ key, label: value.label })); }
-  stats(): { accounts: number; records: number; bytes: number; lastSyncedAt: number | null } { const states = Object.values(this.#data.accounts).flatMap((account) => Object.values(account.states).filter((state): state is NonNullable<typeof state> => Boolean(state))); return { accounts: Object.keys(this.#data.accounts).length, records: states.reduce((sum, state) => sum + state.records.length, 0), bytes: Buffer.byteLength(JSON.stringify(this.#data)), lastSyncedAt: states.reduce<number | null>((latest, state) => latest === null || state.syncedAt > latest ? state.syncedAt : latest, null) }; }
+  stats(): { accounts: number; records: number; bytes: number; lastSyncedAt: number | null; lastFullSyncedAt: number | null } { const states = Object.values(this.#data.accounts).flatMap((account) => Object.values(account.states).filter((state): state is NonNullable<typeof state> => Boolean(state))); return { accounts: Object.keys(this.#data.accounts).length, records: states.reduce((sum, state) => sum + state.records.length, 0), bytes: Buffer.byteLength(JSON.stringify(this.#data)), lastSyncedAt: states.reduce<number | null>((latest, state) => latest === null || state.syncedAt > latest ? state.syncedAt : latest, null), lastFullSyncedAt: states.reduce<number | null>((latest, state) => state.fullSyncedAt !== null && (latest === null || state.fullSyncedAt > latest) ? state.fullSyncedAt : latest, null) }; }
   read(accountKey: string, state: CachedConversation["state"]): { syncedAt: number; fullSyncedAt: number | null; records: CachedConversation[] } | null { const value = this.#data.accounts[accountKey]?.states[state]; return value ? structuredClone(value) : null; }
   async replace(accountKey: string, label: string, state: CachedConversation["state"], records: CachedConversation[], full: boolean): Promise<void> {
     const account = this.#data.accounts[accountKey] ??= { label, states: {} }; account.label = label;

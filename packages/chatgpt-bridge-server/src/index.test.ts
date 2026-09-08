@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ChatGptBridgeServer, ConversationIndexStore } from "./index.js";
+import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from "./index.js";
 
 const servers: ChatGptBridgeServer[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => server.close())); });
@@ -59,6 +59,24 @@ describe("ChatGptBridgeServer", () => {
 });
 
 describe("ConversationIndexStore", () => {
+  it("uses cached incremental sync until periodic full calibration is due", () => {
+    const now = Date.parse("2026-09-08T00:00:00Z");
+    const snapshot = { syncedAt: now, fullSyncedAt: now, records: [] };
+    expect(chooseCacheSyncMode(null, false, now)).toBe("full");
+    expect(chooseCacheSyncMode(snapshot, false, now + 5 * 60 * 60 * 1000)).toBe("incremental");
+    expect(chooseCacheSyncMode(snapshot, false, now + 6 * 60 * 60 * 1000)).toBe("full");
+    expect(chooseCacheSyncMode(snapshot, true, now)).toBe("full");
+  });
+
+  it("removes server-deleted records during periodic full calibration", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
+    const record = (id: string) => ({ id, title: id, createdAt: 1, updatedAt: 2, state: "active" as const, pinned: false, current: false, automation: false });
+    await store.replace("account", "默认账号", "active", [record("kept"), record("removed-remotely")], true);
+    await store.replace("account", "默认账号", "active", [record("kept")], true);
+    expect(store.read("account", "active")?.records.map((item) => item.id)).toEqual(["kept"]);
+    expect(store.stats().lastFullSyncedAt).not.toBeNull();
+  });
+
   it("moves and deletes only server-confirmed records", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
     await store.replace("account", "默认账号", "active", [{ id: "one", title: "One", createdAt: 1, updatedAt: 2, state: "active", pinned: false, current: false, automation: false }], true);

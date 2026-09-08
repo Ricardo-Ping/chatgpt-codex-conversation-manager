@@ -5,10 +5,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import electronUpdater from "electron-updater";
-import { ChatGptBridgeServer, ConversationIndexStore, type CachedConversation } from "@conversation-manager/chatgpt-bridge-server";
+import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode, type CachedConversation } from "@conversation-manager/chatgpt-bridge-server";
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { discoverCodexCommands } from "./codex-discovery.js";
-import { DEFAULT_AUTO_UPDATE, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
+import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
 
 const { autoUpdater } = electronUpdater;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -26,6 +26,7 @@ let updateStartupTimer: NodeJS.Timeout | null = null;
 let updateInterval: NodeJS.Timeout | null = null;
 let updateInstallTimer: NodeJS.Timeout | null = null;
 let currentChatBatchId: string | null = null;
+let activeBatchCount = 0;
 const confirmations = new Map<string, { source: "chatgpt" | "codex"; ids: string[]; fingerprint?: string; expiresAt: number }>();
 const canAutoInstallUpdate = supportsAutomaticInstallation(app.isPackaged, process.platform, process.env.PORTABLE_EXECUTABLE_FILE);
 let updateState = { phase: app.isPackaged ? "idle" : "unsupported", currentVersion: app.getVersion(), version: null as string | null, percent: null as number | null, message: app.isPackaged ? "等待检查更新" : "开发模式不检查更新", autoUpdate: true, canAutoInstall: canAutoInstallUpdate };
@@ -63,6 +64,15 @@ async function connectCodex(): Promise<boolean> {
 }
 async function checkForUpdates(): Promise<void> { if (!app.isPackaged || ["checking", "downloading"].includes(updateState.phase)) return; publishUpdateState({ phase: "checking", percent: null, message: "正在检查 GitHub Releases…" }); try { await autoUpdater.checkForUpdates(); } catch { publishUpdateState({ phase: "error", message: "检查更新失败，请稍后重试" }); } }
 function scheduleAutomaticUpdates(): void { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); updateStartupTimer = null; updateInterval = null; if (!app.isPackaged || !autoUpdateEnabled) return; updateStartupTimer = setTimeout(() => void checkForUpdates(), 10_000); updateInterval = setInterval(() => void checkForUpdates(), UPDATE_CHECK_INTERVAL_MS); updateStartupTimer.unref(); updateInterval.unref(); }
+function scheduleUpdateInstall(): void {
+  if (updateInstallTimer) return;
+  updateInstallTimer = setTimeout(() => {
+    updateInstallTimer = null;
+    if (isUpdateInstallSafe(updateState.phase, activeBatchCount)) autoUpdater.quitAndInstall(true, true);
+    else if (updateState.phase === "downloaded" && autoUpdateEnabled) { publishUpdateState({ message: "更新已下载，将在批量操作完成后自动安装" }); scheduleUpdateInstall(); }
+  }, 5_000);
+  updateInstallTimer.unref();
+}
 function configureUpdater(): void {
   autoUpdater.allowPrerelease = app.getVersion().includes("-"); autoUpdater.autoDownload = canAutoInstallUpdate; autoUpdater.autoInstallOnAppQuit = canAutoInstallUpdate; autoUpdater.logger = null;
   autoUpdater.on("checking-for-update", () => publishUpdateState({ phase: "checking", percent: null, message: "正在检查 GitHub Releases…" }));
@@ -72,8 +82,7 @@ function configureUpdater(): void {
   autoUpdater.on("update-downloaded", (info) => {
     if (canAutoInstallUpdate && autoUpdateEnabled) {
       publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，5 秒后自动重启安装` });
-      if (!updateInstallTimer) updateInstallTimer = setTimeout(() => { updateInstallTimer = null; if (updateState.phase === "downloaded") autoUpdater.quitAndInstall(true, true); }, 5_000);
-      updateInstallTimer.unref();
+      scheduleUpdateInstall();
     } else {
       publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，可重启安装` });
     }
@@ -93,15 +102,16 @@ ipcMain.handle("chatgpt:accounts", async (event) => { requireRenderer(event); co
 ipcMain.handle("chatgpt:cached-accounts", (event) => { requireRenderer(event); return { accounts: indexStore.accounts().map((item) => ({ ...item, isDefault: false })) }; });
 ipcMain.handle("chatgpt:cache", (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return indexStore.read(requireAccount(input.accountKey), requireState(input.state)); });
 ipcMain.handle("chatgpt:list", async (event, value) => {
-  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const state = requireState(input.state); const label = typeof input.label === "string" ? input.label.slice(0, 100) : "ChatGPT 账号"; const full = input.full === true; const cached = indexStore.read(accountKey, state);
-  const result = await bridge.request("list", { accountKey, state, mode: full ? "full" : "incremental", checkpoint: full ? null : cached?.records[0]?.updatedAt ?? null }, 180_000); if (!result.ok) throw new Error(result.error?.message || "同步失败");
-  const payload = result.payload as { records?: unknown; full?: boolean }; const records = sanitizeRecords(payload.records, state); if (full || payload.full) await indexStore.replace(accountKey, label, state, records, true); else await indexStore.merge(accountKey, label, state, records); return indexStore.read(accountKey, state);
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const state = requireState(input.state); const label = typeof input.label === "string" ? input.label.slice(0, 100) : "ChatGPT 账号"; const cached = indexStore.read(accountKey, state); const mode = chooseCacheSyncMode(cached, input.full === true);
+  const result = await bridge.request("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, 180_000); if (!result.ok) throw new Error(result.error?.message || "同步失败");
+  const payload = result.payload as { records?: unknown; full?: boolean }; const records = sanitizeRecords(payload.records, state); const calibrated = mode === "full" || payload.full === true; if (calibrated) await indexStore.replace(accountKey, label, state, records, true); else await indexStore.merge(accountKey, label, state, records); const snapshot = indexStore.read(accountKey, state); return snapshot ? { ...snapshot, syncMode: calibrated ? "full" : "incremental" } : null;
 });
 ipcMain.handle("chatgpt:preview-delete", (event, value) => { requireRenderer(event); const ids = requireIds(value); const token = randomUUID(); confirmations.set(token, { source: "chatgpt", ids, expiresAt: Date.now() + 120_000 }); return { confirmationToken: token }; });
 ipcMain.handle("chatgpt:batch", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const action = input.action; if (action !== "archive" && action !== "restore" && action !== "delete") throw new Error("Invalid batch action"); const ids = requireIds(input.ids); const accountKey = requireAccount(input.accountKey); if (action === "delete") validateConfirmation("chatgpt", ids, input.confirmationToken);
   const operationId = randomUUID(); currentChatBatchId = operationId;
-  try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId }, 300_000); if (!result.ok) throw new Error(result.error?.message || "批量操作失败"); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { if (currentChatBatchId === operationId) currentChatBatchId = null; }
+  activeBatchCount += 1;
+  try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId }, 300_000); if (!result.ok) throw new Error(result.error?.message || "批量操作失败"); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
 });
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
@@ -114,19 +124,22 @@ ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); c
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) { confirmationToken = randomUUID(); confirmations.set(confirmationToken, { source: "codex", ids, fingerprint: preview.fingerprint, expiresAt: Date.now() + 120_000 }); } return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || "未命名任务", derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
 ipcMain.handle("codex:batch", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const action = input.action; if (action !== "archive" && action !== "unarchive" && action !== "delete") throw new Error("Invalid batch action"); const ids = requireIds(input.ids);
-  const currentRecords = [];
-  if (action === "delete") { const confirmation = validateConfirmation("codex", ids, input.confirmationToken); const current = await codex.previewDelete(ids); if (current.missing.length || current.running.length || current.fingerprint !== confirmation.fingerprint) throw new Error("任务状态已变化，请重新预览"); currentRecords.push(...current.records); }
-  else { let cursor: string | null = null; do { const page = await codex.list({ archived: action === "unarchive", cursor, includeDerived: true }); currentRecords.push(...page.data); cursor = page.nextCursor; } while (cursor); }
-  const currentById = new Map(currentRecords.map((thread) => [thread.id, thread]));
-  const succeeded: string[] = [], failed: Array<{ id: string; message: string }> = [];
-  for (const id of ids) { try { const current = currentById.get(id); if (!current) throw new Error("任务不存在"); if (current.status?.type === "active") throw new Error("运行中的任务不能批量操作"); if (action === "archive") await codex.archive(id); else if (action === "unarchive") await codex.unarchive(id); else await codex.delete(id); succeeded.push(id); } catch (error) { failed.push({ id, message: error instanceof Error ? error.message : String(error) }); } }
-  return { succeeded, failed };
+  activeBatchCount += 1;
+  try {
+    const currentRecords = [];
+    if (action === "delete") { const confirmation = validateConfirmation("codex", ids, input.confirmationToken); const current = await codex.previewDelete(ids); if (current.missing.length || current.running.length || current.fingerprint !== confirmation.fingerprint) throw new Error("任务状态已变化，请重新预览"); currentRecords.push(...current.records); }
+    else { let cursor: string | null = null; do { const page = await codex.list({ archived: action === "unarchive", cursor, includeDerived: true }); currentRecords.push(...page.data); cursor = page.nextCursor; } while (cursor); }
+    const currentById = new Map(currentRecords.map((thread) => [thread.id, thread]));
+    const succeeded: string[] = [], failed: Array<{ id: string; message: string }> = [];
+    for (const id of ids) { try { const current = currentById.get(id); if (!current) throw new Error("任务不存在"); if (current.status?.type === "active") throw new Error("运行中的任务不能批量操作"); if (action === "archive") await codex.archive(id); else if (action === "unarchive") await codex.unarchive(id); else await codex.delete(id); succeeded.push(id); } catch (error) { failed.push({ id, message: error instanceof Error ? error.message : String(error) }); } }
+    return { succeeded, failed };
+  } finally { activeBatchCount -= 1; }
 });
 
 ipcMain.handle("update:get-state", (event) => { requireRenderer(event); return updateState; });
-ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; if (updateInstallTimer) { clearTimeout(updateInstallTimer); updateInstallTimer = null; } publishUpdateState({ autoUpdate: value, ...(value && updateState.phase === "downloaded" && canAutoInstallUpdate ? { message: `v${updateState.version} 已下载，5 秒后自动重启安装` } : {}) }); scheduleAutomaticUpdates(); if (value && updateState.phase === "downloaded" && canAutoInstallUpdate) { updateInstallTimer = setTimeout(() => { updateInstallTimer = null; if (updateState.phase === "downloaded") autoUpdater.quitAndInstall(true, true); }, 5_000); updateInstallTimer.unref(); } else if (value) void checkForUpdates(); return updateState; });
+ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; if (updateInstallTimer) { clearTimeout(updateInstallTimer); updateInstallTimer = null; } publishUpdateState({ autoUpdate: value, ...(value && updateState.phase === "downloaded" && canAutoInstallUpdate ? { message: `v${updateState.version} 已下载，5 秒后自动重启安装` } : {}) }); scheduleAutomaticUpdates(); if (value && updateState.phase === "downloaded" && canAutoInstallUpdate) scheduleUpdateInstall(); else if (value) void checkForUpdates(); return updateState; });
 ipcMain.handle("update:check", async (event) => { requireRenderer(event); await checkForUpdates(); return updateState; });
-ipcMain.handle("update:install", (event) => { requireRenderer(event); if (!canAutoInstallUpdate || updateState.phase !== "downloaded") throw new Error("Update is not ready"); autoUpdater.quitAndInstall(true, true); });
+ipcMain.handle("update:install", (event) => { requireRenderer(event); if (!canAutoInstallUpdate || !isUpdateInstallSafe(updateState.phase, activeBatchCount)) throw new Error(activeBatchCount ? "请等待批量操作完成后再安装更新" : "Update is not ready"); autoUpdater.quitAndInstall(true, true); });
 ipcMain.handle("update:open-release", async (event) => { requireRenderer(event); await shell.openExternal(RELEASE_URL); });
 
 type ThemePreference = "system" | "light" | "dark";

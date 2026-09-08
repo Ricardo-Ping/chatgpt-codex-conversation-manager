@@ -44,7 +44,7 @@ button { cursor: pointer; }
 /* ---- 布局骨架：左侧边栏 + 内容区 ---- */
 .app-shell { display: flex; height: 100vh; overflow: hidden; }
 .sidebar { width: 204px; flex: none; display: flex; flex-direction: column; gap: 20px; padding: 18px 12px 14px; background: var(--surface); border-right: 1px solid var(--border); }
-.content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 8px; }
 .brand-mark { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: white; font-weight: 800; box-shadow: var(--brand-mark-shadow); }
@@ -75,7 +75,7 @@ button { cursor: pointer; }
 /* ---- 工作区：单列主区 ---- */
 .workspace, .settings { flex: 1; min-height: 0; }
 .workspace { display: flex; flex-direction: column; padding: 24px 28px 0; width: 100%; max-width: 1700px; margin: auto; }
-.workspace-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.workspace-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
 .workspace-title { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
 .eyebrow { text-transform: uppercase; letter-spacing: .12em; color: var(--eyebrow); font-size: 11px; font-weight: 800; margin: 0 0 6px; }
@@ -103,7 +103,7 @@ button { cursor: pointer; }
 .notice.error { background: var(--notice-error-bg); color: var(--notice-error-text); }
 
 /* ---- 列表：两行行结构 ---- */
-.list { flex: 1; overflow: auto; background: var(--surface-list); border: 1px solid var(--border-quiet); border-radius: 16px 16px 0 0; box-shadow: var(--card-shadow); }
+.list { flex: 1; min-height: 0; overflow: auto; background: var(--surface-list); border: 1px solid var(--border-quiet); border-radius: 16px 16px 0 0; box-shadow: var(--card-shadow); }
 .list-head, .row { display: grid; grid-template-columns: 42px minmax(280px, 1fr) 118px; }
 .list-head { position: sticky; top: 0; z-index: 2; align-items: center; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); color: var(--text-faint); font-size: 11px; }
 .list-head span:last-child { text-align: right; }

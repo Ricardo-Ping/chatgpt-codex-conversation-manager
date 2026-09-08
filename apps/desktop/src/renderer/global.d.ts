@@ -3,7 +3,7 @@ import type { ThreadListResponse } from "@conversation-manager/codex-app-server-
 
 export type ThemePreference = "system" | "light" | "dark";
 export interface UpdateState { phase: "unsupported" | "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error"; currentVersion: string; version: string | null; percent: number | null; message: string; autoUpdate: boolean; canAutoInstall: boolean }
-export interface CacheSnapshot { syncedAt: number; fullSyncedAt: number | null; records: CachedConversation[] }
+export interface CacheSnapshot { syncedAt: number; fullSyncedAt: number | null; records: CachedConversation[]; syncMode?: "full" | "incremental" }
 export interface BatchResult { succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] }
 
 declare global {
@@ -19,8 +19,8 @@ declare global {
       previewDelete(ids: string[]): Promise<{ confirmationToken: string }>;
       runBatch(accountKey: string, action: "archive" | "restore" | "delete", ids: string[], confirmationToken?: string): Promise<BatchResult>;
       cancel(): Promise<{ cancelled: boolean }>;
-      cacheStats(): Promise<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null }>;
-      clearCache(): Promise<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null }>;
+      cacheStats(): Promise<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null; lastFullSyncedAt: number | null }>;
+      clearCache(): Promise<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null; lastFullSyncedAt: number | null }>;
     };
     codex: {
       status(): Promise<{ available: boolean; message: string; command: string }>;

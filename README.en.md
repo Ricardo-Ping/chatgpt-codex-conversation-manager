@@ -10,7 +10,7 @@ Conversation Manager is a local desktop app for finding, filtering, archiving, r
 - Click anywhere on a row to select, double-click to open. Keyboard support: ↑↓ move, Space select, Enter open, `/` focus search, Ctrl/Cmd+A select all, Delete quick archive, Esc clear.
 - Multi-select batch archive, restore, and permanent delete with an in-app confirmation dialog; deletions above 20 items require typing the count.
 - Protection for pinned/current chats and running Codex tasks.
-- Minimal local index with instant cached display, incremental sync, and manual full calibration; sync completion reports the number of conversations.
+- Minimal local index with instant cached display; the visible view checks incrementally every 2 minutes and performs a full calibration at least every 6 hours. Remote deletions are removed locally during full calibration, which can also be started immediately with “Full refresh.”
 - Follows the system dark theme, or pin light/dark in Settings.
 - The installer build checks GitHub Releases automatically and installs updates silently 5 seconds after download; the portable build checks and links to the download page.
 
@@ -36,6 +36,8 @@ OpenAI's unified Windows desktop client runs as `ChatGPT.exe` and includes Codex
 
 The bridge binds only to `127.0.0.1`. Cookies, access tokens, raw account IDs, message bodies, and full API responses stay out of the desktop app. The local index contains only IDs, titles, timestamps, states, and safety flags.
 
+SHA-256 digests only isolate caches for different accounts; they do not replace server validation. Periodic full calibration is what detects remote deletions.
+
 ## Development
 
 ```powershell
@@ -51,7 +53,7 @@ See [README.md](README.md) for the default Chinese documentation and [the implem
 
 ## Current limits
 
-`v0.2.8` supports Windows x64 with Chrome or Edge. The extension is distributed as a Release ZIP; macOS, Firefox, and direct access to the official ChatGPT desktop client's private chat database are not supported yet.
+`v0.2.9` supports Windows x64 with Chrome or Edge. The extension is distributed as a Release ZIP; macOS, Firefox, and direct access to the official ChatGPT desktop client's private chat database are not supported yet.
 
 ## License
 
