@@ -129,7 +129,14 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   for await (const part of req) { const chunk = Buffer.from(part); size += chunk.length; if (size > MAX_BODY) throw new BodyError(413, "body_too_large"); parts.push(chunk); }
   try { return JSON.parse(Buffer.concat(parts).toString("utf8")) as T; } catch { throw new BodyError(400, "invalid_json"); }
 }
-function json(res: ServerResponse, status: number, value: unknown): void { res.statusCode = status; if (status === 204) return void res.end(); res.setHeader("Content-Type", "application/json; charset=utf-8"); res.end(JSON.stringify(value)); }
+function json(res: ServerResponse, status: number, value: unknown): void {
+  res.statusCode = status;
+  if (status === 204) return void res.end();
+  const body: string = JSON.stringify(value) ?? "null";
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.end(Buffer.from(body, "utf8"));
+}
 function isExtensionOrigin(origin: string | undefined): boolean { return Boolean(origin?.startsWith("chrome-extension://") || origin?.startsWith("extension://")); }
 
 export interface CachedConversation { id: string; title: string; createdAt: number | null; updatedAt: number | null; state: "active" | "archived" | "scheduled"; projectId?: string; pinned: boolean; current: boolean; automation: boolean }

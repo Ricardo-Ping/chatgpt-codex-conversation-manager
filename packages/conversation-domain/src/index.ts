@@ -11,6 +11,7 @@ export interface ManagedConversation {
   state: ConversationState;
   projectId?: string;
   cwd?: string;
+  preview?: string | null;
   pinned: boolean;
   running: boolean;
   current: boolean;

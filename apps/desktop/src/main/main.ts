@@ -24,6 +24,7 @@ let indexStore: ConversationIndexStore;
 let autoUpdateEnabled = DEFAULT_AUTO_UPDATE;
 let updateStartupTimer: NodeJS.Timeout | null = null;
 let updateInterval: NodeJS.Timeout | null = null;
+let updateInstallTimer: NodeJS.Timeout | null = null;
 let currentChatBatchId: string | null = null;
 const confirmations = new Map<string, { source: "chatgpt" | "codex"; ids: string[]; fingerprint?: string; expiresAt: number }>();
 const canAutoInstallUpdate = supportsAutomaticInstallation(app.isPackaged, process.platform, process.env.PORTABLE_EXECUTABLE_FILE);
@@ -68,7 +69,15 @@ function configureUpdater(): void {
   autoUpdater.on("update-available", (info) => publishUpdateState({ phase: "available", version: info.version, message: canAutoInstallUpdate ? `发现 v${info.version}，正在下载` : `发现 v${info.version}，请前往 Release 下载` }));
   autoUpdater.on("update-not-available", (info) => publishUpdateState({ phase: "not-available", version: info.version, percent: null, message: "当前已是最新版本" }));
   autoUpdater.on("download-progress", (progress) => publishUpdateState({ phase: "downloading", percent: Math.round(progress.percent), message: `正在下载更新 ${Math.round(progress.percent)}%` }));
-  autoUpdater.on("update-downloaded", (info) => publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，可重启安装` }));
+  autoUpdater.on("update-downloaded", (info) => {
+    if (canAutoInstallUpdate && autoUpdateEnabled) {
+      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，5 秒后自动重启安装` });
+      if (!updateInstallTimer) updateInstallTimer = setTimeout(() => { updateInstallTimer = null; if (updateState.phase === "downloaded") autoUpdater.quitAndInstall(true, true); }, 5_000);
+      updateInstallTimer.unref();
+    } else {
+      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，可重启安装` });
+    }
+  });
   autoUpdater.on("error", () => publishUpdateState({ phase: "error", message: "更新失败，请手动打开 Release 页面" }));
 }
 
@@ -115,7 +124,7 @@ ipcMain.handle("codex:batch", async (event, value) => {
 });
 
 ipcMain.handle("update:get-state", (event) => { requireRenderer(event); return updateState; });
-ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; publishUpdateState({ autoUpdate: value }); scheduleAutomaticUpdates(); if (value) void checkForUpdates(); return updateState; });
+ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; if (updateInstallTimer) { clearTimeout(updateInstallTimer); updateInstallTimer = null; } publishUpdateState({ autoUpdate: value, ...(value && updateState.phase === "downloaded" && canAutoInstallUpdate ? { message: `v${updateState.version} 已下载，5 秒后自动重启安装` } : {}) }); scheduleAutomaticUpdates(); if (value && updateState.phase === "downloaded" && canAutoInstallUpdate) { updateInstallTimer = setTimeout(() => { updateInstallTimer = null; if (updateState.phase === "downloaded") autoUpdater.quitAndInstall(true, true); }, 5_000); updateInstallTimer.unref(); } else if (value) void checkForUpdates(); return updateState; });
 ipcMain.handle("update:check", async (event) => { requireRenderer(event); await checkForUpdates(); return updateState; });
 ipcMain.handle("update:install", (event) => { requireRenderer(event); if (!canAutoInstallUpdate || updateState.phase !== "downloaded") throw new Error("Update is not ready"); autoUpdater.quitAndInstall(true, true); });
 ipcMain.handle("update:open-release", async (event) => { requireRenderer(event); await shell.openExternal(RELEASE_URL); });
@@ -128,5 +137,5 @@ if (!singleInstance) app.quit();
 else app.on("second-instance", () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } });
 if (app.isPackaged) { app.setAsDefaultProtocolClient("conversation-manager"); app.setAsDefaultProtocolClient("cgn"); }
 app.whenReady().then(async () => { const userData = app.getPath("userData"); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret")); indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); await bridge.start(); autoUpdateEnabled = await loadUpdatePreference(); updateState = { ...updateState, currentVersion: app.getVersion(), autoUpdate: autoUpdateEnabled }; configureUpdater(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { console.error(error); app.quit(); });
-app.on("window-all-closed", () => { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
+app.on("window-all-closed", () => { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); if (updateInstallTimer) clearTimeout(updateInstallTimer); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });

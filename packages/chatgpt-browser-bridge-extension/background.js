@@ -58,4 +58,7 @@ async function sendToChatGptTab(tabId, message) {
     return chrome.tabs.sendMessage(tabId, message);
   }
 }
+
 void startPolling();
+
+if (typeof module !== "undefined" && module?.exports) module.exports = { sendToChatGptTab };
