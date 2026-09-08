@@ -1,6 +1,6 @@
 {
   "name": "@conversation-manager/desktop",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "Conversation management for ChatGPT and Codex",

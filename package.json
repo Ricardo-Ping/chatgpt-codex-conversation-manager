@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-codex-conversation-manager",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Local desktop conversation manager for ChatGPT and Codex",
   "packageManager": "pnpm@11.19.0",
