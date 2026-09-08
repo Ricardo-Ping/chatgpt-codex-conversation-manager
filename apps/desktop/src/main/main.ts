@@ -234,6 +234,7 @@ ipcMain.handle("language:set", async (event, value) => { requireRenderer(event);
 function validateConfirmation(source: "chatgpt" | "codex", ids: string[], value: unknown) { const token = typeof value === "string" ? value : ""; const confirmation = confirmations.get(token); confirmations.delete(token); if (!confirmation || confirmation.source !== source || confirmation.expiresAt < Date.now() || JSON.stringify(confirmation.ids) !== JSON.stringify(ids)) throw new Error("删除确认已过期，请重新预览"); return confirmation; }
 function rememberConfirmation(source: "chatgpt" | "codex", ids: string[], fingerprint?: string): string { const now = Date.now(); for (const [token, entry] of confirmations) if (entry.expiresAt < now) confirmations.delete(token); const token = randomUUID(); confirmations.set(token, { source, ids, ...(fingerprint ? { fingerprint } : {}), expiresAt: now + 120_000 }); return token; }
 function sanitizeAccounts(value: unknown) { const input = value && typeof value === "object" ? value as { accounts?: unknown } : {}; if (!Array.isArray(input.accounts) || input.accounts.length > 100) throw new Error("浏览器返回了无效账号列表"); const out: Array<{ key: string; label: string; isDefault: boolean }> = []; for (const item of input.accounts) { const row = item && typeof item === "object" ? item as Record<string, unknown> : {}; try { out.push({ key: requireAccount(row.key), label: typeof row.label === "string" ? row.label.slice(0, 100) : "ChatGPT 账号", isDefault: row.isDefault === true }); } catch {} } if (!out.length && input.accounts.length) throw new Error("浏览器返回了无法识别的账号列表"); return { accounts: out }; }
+const warnedMalformedIds = new Set<string>();
 function sanitizeRecords(value: unknown, state: CachedConversation["state"]): CachedConversation[] {
   if (!Array.isArray(value) || value.length > 100_000) throw new Error("浏览器返回了无效会话列表");
   const out: CachedConversation[] = []; let skipped = 0; let sample = "";
@@ -244,11 +245,11 @@ function sanitizeRecords(value: unknown, state: CachedConversation["state"]): Ca
       out.push({ id: requireId(row.id), title: typeof row.title === "string" ? row.title.slice(0, 500) : "未命名会话", createdAt: number(row.createdAt), updatedAt: number(row.updatedAt), state, ...(typeof row.projectId === "string" && row.projectId.length <= 128 ? { projectId: row.projectId } : {}), pinned: row.pinned === true, current: row.current === true, automation: state === "scheduled" });
     } catch {
       skipped += 1;
-      if (!sample) sample = typeof row.id === "string" ? `${row.id.slice(0, 12)}…(len ${row.id.length})` : `type:${typeof row.id}`;
+      if (!sample && typeof row.id === "string") sample = `${row.id.slice(0, 12)}…(len ${row.id.length})`;
     }
   }
   if (!out.length && value.length) throw new Error(`浏览器返回了 ${value.length} 条无法识别的会话记录，已保留本地缓存`);
-  if (skipped) logWarn(`[chatgpt-bridge] skipped ${skipped} malformed conversation rows, sample id: ${sample || "unknown"}`);
+  if (skipped && !warnedMalformedIds.has(sample)) { warnedMalformedIds.add(sample); logWarn(`[chatgpt-bridge] skipped ${skipped} malformed conversation rows, sample id: ${sample || "unknown"}`); }
   return out;
 }
 const singleInstance = app.requestSingleInstanceLock();
