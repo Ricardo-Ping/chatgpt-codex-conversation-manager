@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-- 目标版本：`v0.2.1`
-- 当前阶段：`v0.2.1` 已发布
-- 最后验证提交：`17b622a`
+- 目标版本：`v0.2.2`
+- 当前阶段：现场问题修复与发布前验证
+- 最后验证提交：`ac004c5`（本轮修改尚未提交）
 - 已确认：ChatGPT 使用浏览器桥接；Codex 使用本机 App Server；管理器不提供独立登录。
 
 ## 阶段清单
@@ -35,7 +35,7 @@
 ## 验证记录
 
 - `pnpm install --lockfile-only`：通过，锁文件已同步。
-- `pnpm test`：通过；浏览器桥接 11 项、桥接服务 7 项、会话领域 3 项、Codex Adapter 2 项、桌面主进程 4 项、配套 MCP 1 项。
+- `pnpm test`：通过；浏览器桥接 13 项、桥接服务 7 项、会话领域 3 项、Codex Adapter 2 项、桌面端 6 项、配套 MCP 1 项。
 - `pnpm typecheck`：通过。
 - `pnpm package:win`：通过，已生成 Windows x64 安装版、便携版和浏览器桥接 ZIP。
 - `git diff --check`：通过。
@@ -43,7 +43,7 @@
 - ASAR 清单审计：业务 workspace 包仅包含编译产物和 package metadata；测试、TypeScript 源文件及 tsconfig 未打入应用。
 - 敏感信息扫描：未发现 GitHub Token、API Key、私钥、本地用户路径、Cookie 或本地缓存文件。
 
-已执行：在本机统一 ChatGPT/Codex Windows 客户端环境中自动发现内置 `codex.exe`，并通过 `app-server` 只读取得任务分页。
+已执行：在本机统一 ChatGPT/Codex Windows 客户端环境中自动发现内置 `codex.exe`，并通过 `app-server` 只读取得 41 条任务；41 条均包含 `cwd`，可归入 24 个工作目录分组。
 
 尚未执行：`v0.2.1` 扩展的 Chrome/Edge 真实账号只读同步、专用测试会话的归档/恢复/删除、旧安装版原位升级。真实 ChatGPT 写操作仍只允许使用专门测试会话。
 
@@ -66,3 +66,10 @@
 - 扩展配对改为一次显式点击，不再手工传递六位码。
 - ChatGPT 项目会话恢复已验证的 `cursor`、`owned_only` 参数，移除导致 422 的 `is_archived` 项目参数。
 - Windows 自动扫描统一桌面客户端生成的 `%LOCALAPPDATA%\OpenAI\Codex\bin\*\codex.exe`，PATH 与手动选择保留为兜底。
+
+## v0.2.2 现场修复
+
+- ChatGPT 标签页没有消息接收端时，扩展自动补注入桥接脚本并重试；重复注入由单实例保护拦截。
+- 桌面端隐藏 Electron IPC 的内部错误前缀，只显示可执行的错误信息。
+- Codex 任务按 `cwd` 归入可折叠项目文件夹；没有 `cwd` 的任务归入“非项目任务”。
+- 下载完成的安装版更新使用静默安装，避免再次弹出 NSIS 安装向导。

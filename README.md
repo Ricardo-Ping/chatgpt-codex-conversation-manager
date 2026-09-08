@@ -23,15 +23,15 @@ ChatGPT 通过配套 Chrome/Edge 扩展复用浏览器中已有的登录状态�
 2. 在 Chrome/Edge 的扩展管理页启用“开发者模式”，选择“加载已解压的扩展程序”。
 3. 在应用设置中点击“打开扩展目录”，选择该目录。
 4. 点击浏览器工具栏中的扩展，再点“一键连接桌面管理器”。首次只需这一次显式操作，之后会自动连接。
-5. 保持一个已登录的 `chatgpt.com` 标签页打开，即可读取和管理会话。
+5. 保持一个已登录的 `chatgpt.com` 标签页打开，即可读取和管理会话。扩展升级后无需手动刷新旧标签页，管理器会在首次读取时自动恢复桥接。
 
 完全没有 ChatGPT 登录状态时无法读取云端会话。桥接断开后仍可查看缓存，但归档和删除会被禁用。
 
 ### Codex
 
-OpenAI 的 Windows 桌面客户端虽然以 `ChatGPT.exe` 运行，并在同一应用中提供 ChatGPT 与 Codex，但 Codex 任务仍由随客户端安装的 `codex app-server` 提供。Conversation Manager 会自动查找并连接这个内置后端，不要求再次登录，也不读取 `auth.json`、会话 JSONL 或状态数据库。
+OpenAI 的 Windows 桌面客户端虽然以 `ChatGPT.exe` 运行，并在同一应用中提供 ChatGPT 与 Codex，但公开的 `codex app-server` 只提供 Codex 任务接口，不提供 ChatGPT 云端聊天列表或管理接口。Conversation Manager 会自动查找并连接这个内置后端，不要求再次登录，也不读取 `auth.json`、会话 JSONL 或状态数据库。
 
-只有自动检测失败时，设置页才显示手动选择 `codex.exe`、`codex.cmd` 或 `codex.bat` 的兜底入口。`app-server` 读取的是 Codex 任务；ChatGPT 普通云端聊天仍通过浏览器桥接读取。
+只有自动检测失败时，设置页才显示手动选择 `codex.exe`、`codex.cmd` 或 `codex.bat` 的兜底入口。Codex 任务按工作目录归入可折叠的项目文件夹；没有工作目录的任务单独归入“非项目任务”。ChatGPT 普通云端聊天仍通过浏览器桥接读取。
 
 ## 隐私与安全
 
@@ -62,7 +62,7 @@ pnpm package:win
 
 ## 当前限制
 
-- `v0.2.1` 支持 Windows x64、Chrome 和 Edge。
+- `v0.2.2` 支持 Windows x64、Chrome 和 Edge。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
 - macOS、Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 

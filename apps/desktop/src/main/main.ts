@@ -117,7 +117,7 @@ ipcMain.handle("codex:batch", async (event, value) => {
 ipcMain.handle("update:get-state", (event) => { requireRenderer(event); return updateState; });
 ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; publishUpdateState({ autoUpdate: value }); scheduleAutomaticUpdates(); if (value) void checkForUpdates(); return updateState; });
 ipcMain.handle("update:check", async (event) => { requireRenderer(event); await checkForUpdates(); return updateState; });
-ipcMain.handle("update:install", (event) => { requireRenderer(event); if (!canAutoInstallUpdate || updateState.phase !== "downloaded") throw new Error("Update is not ready"); autoUpdater.quitAndInstall(false, true); });
+ipcMain.handle("update:install", (event) => { requireRenderer(event); if (!canAutoInstallUpdate || updateState.phase !== "downloaded") throw new Error("Update is not ready"); autoUpdater.quitAndInstall(true, true); });
 ipcMain.handle("update:open-release", async (event) => { requireRenderer(event); await shell.openExternal(RELEASE_URL); });
 
 function validateConfirmation(source: "chatgpt" | "codex", ids: string[], value: unknown) { const token = typeof value === "string" ? value : ""; const confirmation = confirmations.get(token); confirmations.delete(token); if (!confirmation || confirmation.source !== source || confirmation.expiresAt < Date.now() || JSON.stringify(confirmation.ids) !== JSON.stringify(ids)) throw new Error("删除确认已过期，请重新预览"); return confirmation; }

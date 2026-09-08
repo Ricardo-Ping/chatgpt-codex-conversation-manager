@@ -46,8 +46,16 @@ async function run(command, secret) {
     const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
     const tab = tabs[0];
     if (!tab?.id) result = { ok: false, error: { code: "NO_CHATGPT_TAB", message: "请先在浏览器打开 ChatGPT", retryable: true } };
-    else result = await chrome.tabs.sendMessage(tab.id, { target: "conversation-manager-content", ...command });
+    else result = await sendToChatGptTab(tab.id, { target: "conversation-manager-content", ...command });
   } catch (error) { result = { ok: false, error: { code: "INTERNAL_ERROR", message: error.message || String(error), retryable: true } }; }
   await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: command.requestId, ...result }) });
+}
+async function sendToChatGptTab(tabId, message) {
+  try { return await chrome.tabs.sendMessage(tabId, message); }
+  catch (error) {
+    if (!/receiving end does not exist|could not establish connection/i.test(error?.message || String(error))) throw error;
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["bridge-core.js", "content.js"] });
+    return chrome.tabs.sendMessage(tabId, message);
+  }
 }
 void startPolling();

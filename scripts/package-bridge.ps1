@@ -6,6 +6,15 @@ $stage = Join-Path $env:TEMP ("conversation-manager-bridge-" + [guid]::NewGuid()
 $version = (Get-Content -Raw -LiteralPath (Join-Path $repo "package.json") | ConvertFrom-Json).version
 $archive = Join-Path $release "Conversation-Manager-Bridge-$version.zip"
 
+function Get-Sha256([string]$path) {
+  $stream = [System.IO.File]::OpenRead($path)
+  try {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace("-", "").ToLowerInvariant() }
+    finally { $sha.Dispose() }
+  } finally { $stream.Dispose() }
+}
+
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 New-Item -ItemType Directory -Path $release -Force | Out-Null
 $files = @("manifest.json", "background.js", "content.js", "bridge-core.js", "popup.html", "popup.css", "popup.js")
@@ -13,10 +22,18 @@ foreach ($file in $files) { Copy-Item -LiteralPath (Join-Path $source $file) -De
 if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $archive -CompressionLevel Optimal
 Remove-Item -LiteralPath $stage -Recurse -Force
-$stream = [System.IO.File]::OpenRead($archive)
-try {
-  $sha = [System.Security.Cryptography.SHA256]::Create()
-  try { $hash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace("-", "").ToLowerInvariant() }
-  finally { $sha.Dispose() }
-} finally { $stream.Dispose() }
+$hash = Get-Sha256 $archive
 [System.IO.File]::WriteAllText("$archive.sha256", "$hash  $(Split-Path -Leaf $archive)`n", [System.Text.UTF8Encoding]::new($false))
+
+$releaseFiles = @(
+  "Conversation-Manager-$version-setup-x64.exe",
+  "Conversation-Manager-$version-portable-x64.exe",
+  "Conversation-Manager-$version-setup-x64.exe.blockmap",
+  "latest.yml",
+  "Conversation-Manager-Bridge-$version.zip"
+)
+$sums = foreach ($name in $releaseFiles) {
+  $path = Join-Path $release $name
+  if (Test-Path -LiteralPath $path) { "{0}  {1}" -f (Get-Sha256 $path), $name }
+}
+[System.IO.File]::WriteAllText((Join-Path $release "SHA256SUMS.txt"), ($sums -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))

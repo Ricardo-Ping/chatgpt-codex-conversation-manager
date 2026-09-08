@@ -1,5 +1,7 @@
 (() => {
   "use strict";
+  if (globalThis.__conversationManagerContentBridgeLoaded) return;
+  globalThis.__conversationManagerContentBridgeLoaded = true;
   const repository = new globalThis.ConversationManagerBridgeCore.ChatGptRepository();
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || message.target !== "conversation-manager-content") return false;

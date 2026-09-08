@@ -20,4 +20,10 @@ describe("desktop update policy", () => {
     expect(source).toContain('import electronUpdater from "electron-updater";');
     expect(source).not.toMatch(/import\s*{[^}]*autoUpdater[^}]*}\s*from\s*["']electron-updater["']/);
   });
+
+  it("installs downloaded updates silently so the NSIS wizard never appears", async () => {
+    const source = await readFile(new URL("./main.ts", import.meta.url), "utf8");
+    expect(source).toContain("autoUpdater.quitAndInstall(true, true)");
+    expect(source).not.toContain("autoUpdater.quitAndInstall(false");
+  });
 });
