@@ -84,7 +84,6 @@ function scheduleUpdateInstall(): void {
 }
 function configureUpdater(): void {
   autoUpdater.allowPrerelease = app.getVersion().includes("-"); autoUpdater.autoDownload = canAutoInstallUpdate; autoUpdater.autoInstallOnAppQuit = canAutoInstallUpdate; autoUpdater.logger = null;
-  if (LANG === "en") autoUpdater.channel = "latest-en";
   autoUpdater.on("checking-for-update", () => publishUpdateState({ phase: "checking", percent: null, message: M().checking }));
   autoUpdater.on("update-available", (info) => publishUpdateState({ phase: "available", version: info.version, message: canAutoInstallUpdate ? M().downloadingUpdate(info.version) : M().downloadedManual(info.version) }));
   autoUpdater.on("update-not-available", (info) => publishUpdateState({ phase: "not-available", version: info.version, percent: null, message: M().upToDate }));
@@ -141,6 +140,7 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
   const workers = Array.from({ length: Math.min(3, items.length) }, async () => {
     while (cursor < items.length) {
       const item = items[cursor++];
+      if (!item) break;
       try {
         const result = await bridge.request("read", { accountKey, id: item.id }, 120_000);
         if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
