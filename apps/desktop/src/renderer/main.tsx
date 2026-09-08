@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { bulkSelectableIds, filterConversations, type AgeFilter, type ConversationState, type ManagedConversation } from "@conversation-manager/conversation-domain";
 import type { CachedConversation, PairingState } from "@conversation-manager/chatgpt-bridge-server";
@@ -13,6 +13,18 @@ type Account = { key: string; label: string; isDefault: boolean };
 type ConfirmOptions = { title: string; body: string; items?: string[]; requireCount?: number };
 const ageOptions: Array<[AgeFilter, string]> = [["all", "全部"], ["day", "1 天前"], ["week", "1 周前"], ["month", "1 个月前"], ["halfYear", "半年前"]];
 const stateLabels: Record<ConversationState, string> = { active: "未归档", archived: "已归档", scheduled: "已安排" };
+
+function Segmented<T extends string>(props: { value: T; options: Array<[T, React.ReactNode]>; onChange(value: T): void; vertical?: boolean; className?: string; "aria-label"?: string }) {
+  const nodes = useRef(new Map<T, HTMLButtonElement>());
+  const [pill, setPill] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const measure = useCallback(() => { const node = nodes.current.get(props.value); if (node) setPill({ x: node.offsetLeft, y: node.offsetTop, width: node.offsetWidth, height: node.offsetHeight }); }, [props.value]);
+  useLayoutEffect(() => { measure(); }, [measure]);
+  useEffect(() => { window.addEventListener("resize", measure); return () => window.removeEventListener("resize", measure); }, [measure]);
+  return <div className={`segments${props.vertical ? " vertical" : ""}${props.className ? ` ${props.className}` : ""}`} role="tablist" aria-label={props["aria-label"]}>
+    {pill && <span className="segment-pill" style={{ transform: `translate(${pill.x}px, ${pill.y}px)`, width: pill.width, height: pill.height }} aria-hidden="true" />}
+    {props.options.map(([value, label]) => <button type="button" key={value} role="tab" aria-selected={props.value === value} ref={(node) => { if (node) nodes.current.set(value, node); else nodes.current.delete(value); }} className={props.value === value ? "active" : ""} onClick={() => props.onChange(value)}>{label}</button>)}
+  </div>;
+}
 
 function App() {
   const [page, setPage] = useState<Page>("chatgpt");
@@ -148,12 +160,12 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   };
   return <section className="workspace">
     <aside className="state-rail" aria-label="会话状态">
-      {states.map((value) => <button type="button" key={value} className={props.state === value ? "active" : ""} onClick={() => props.onState(value)}><span>{stateLabels[value]}</span>{typeof props.counts?.[value] === "number" && <span className="count">{props.counts?.[value]}</span>}</button>)}
+      <Segmented vertical value={props.state} options={states.map((value) => [value, <React.Fragment key={value}>{stateLabels[value]}{typeof props.counts?.[value] === "number" && <span className="count">{props.counts?.[value]}</span>}</React.Fragment>] as [ConversationState, React.ReactNode])} onChange={props.onState} aria-label="会话状态"/>
       <p className="rail-note">单击 选中 · 双击 打开<br/>↑↓ 移动 · Del 快捷操作<br/>/ 聚焦搜索 · Ctrl+A 全选</p>
     </aside>
     <div className="workspace-main">
       <div className="workspace-title"><div><p className="eyebrow">{props.source === "chatgpt" ? "浏览器会话" : "本机任务"}</p><h1>{props.title}</h1><p>{props.subtitle}</p></div><div className="title-actions">{props.accounts && props.accounts.length > 1 && <select value={props.accountKey} onChange={(event) => props.onAccount?.(event.target.value)}>{props.accounts.map((account) => <option key={account.key} value={account.key}>{account.label}</option>)}</select>}<button className="refresh" disabled={props.loading || !props.refreshable} onClick={() => void props.onRefresh()}>{props.loading ? "同步中…" : "完整刷新"}</button></div></div>
-      <div className="toolbar"><input ref={searchRef} className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题（按 / 聚焦）" aria-label="搜索标题"/><div className="age-filter">{ageOptions.map(([value, label]) => <button type="button" key={value} className={age === value ? "active" : ""} onClick={() => setAge(value)}>{label}</button>)}</div><select className="refresh" value={sort} onChange={(event) => setSort(event.target.value as "newest" | "oldest")} aria-label="排序"><option value="newest">最新优先</option><option value="oldest">最早优先</option></select></div>
+      <div className="toolbar"><input ref={searchRef} className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题（按 / 聚焦）" aria-label="搜索标题"/><Segmented className="age-filter" value={age} options={ageOptions} onChange={setAge} aria-label="时间范围"/><select className="refresh" value={sort} onChange={(event) => setSort(event.target.value as "newest" | "oldest")} aria-label="排序"><option value="newest">最新优先</option><option value="oldest">最早优先</option></select></div>
       {(props.error || props.notice || localNotice) && <div className={`notice ${props.error ? "error" : ""}`}>{props.error || localNotice || props.notice}</div>}
       <div className="list" ref={listRef} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 120) setLimit((old) => Math.min(old + 100, visible.length)); }}>
         <div className="list-head"><span></span><span>{visible.length} 条结果</span><span>最后更新</span></div>

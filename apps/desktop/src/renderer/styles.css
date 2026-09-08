@@ -71,10 +71,7 @@ button { cursor: pointer; }
 /* ---- 工作区：状态栏 + 主列 ---- */
 .workspace, .settings { flex: 1; min-height: 0; }
 .workspace { display: flex; gap: 16px; padding: 24px 28px 0; width: 100%; max-width: 1700px; margin: auto; }
-.state-rail { width: 178px; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--rail-bg); border: 1px solid var(--border-quiet); border-radius: 14px; height: fit-content; }
-.state-rail button { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid transparent; background: transparent; border-radius: 9px; padding: 9px 12px; color: var(--text-muted); font-weight: 700; font-size: 13px; }
-.state-rail button:hover { background: var(--rail-hover); }
-.state-rail button.active { background: var(--chip-active); color: var(--brand-text); border-color: var(--chip-active-border); box-shadow: 0 2px 8px var(--chip-shadow); }
+.state-rail { width: 178px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 8px; background: var(--rail-bg); border: 1px solid var(--border-quiet); border-radius: 14px; height: fit-content; }
 .state-rail .count { background: var(--count-bg); color: var(--count-text); border-radius: 99px; font-size: 11px; padding: 1px 8px; font-weight: 700; }
 .rail-note { margin: 6px 4px 2px; color: var(--text-faint); font-size: 11px; line-height: 1.7; }
 .workspace-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -88,9 +85,15 @@ button { cursor: pointer; }
 .refresh:disabled { opacity: .5; }
 
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 13px; }
-.age-filter { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--chip); }
-.age-filter button, .selection-actions button { border: 1px solid transparent; background: transparent; color: var(--text-muted); border-radius: 9px; padding: 8px 12px; }
-.age-filter button.active, .selection-actions button.active { background: var(--chip-active); color: var(--brand-text); border-color: var(--chip-active-border); box-shadow: 0 2px 8px var(--chip-shadow); }
+.segments { position: relative; display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--chip); }
+.segments.vertical { flex-direction: column; align-items: stretch; }
+.segments button { position: relative; z-index: 1; border: 1px solid transparent; background: transparent; color: var(--text-muted); border-radius: 9px; padding: 8px 12px; white-space: nowrap; transition: color .18s ease; }
+.segments.vertical button { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; font-weight: 700; font-size: 13px; }
+.segments button.active { color: var(--brand-text); }
+.segment-pill { position: absolute; top: 0; left: 0; border-radius: 9px; background: var(--chip-active); border: 1px solid var(--chip-active-border); box-shadow: 0 2px 8px var(--chip-shadow); pointer-events: none; transition: transform .24s cubic-bezier(.3, 1, .4, 1), width .24s cubic-bezier(.3, 1, .4, 1), height .24s cubic-bezier(.3, 1, .4, 1); }
+@media (prefers-reduced-motion: reduce) { .segment-pill, .segments button { transition: none; } }
+.selection-actions button { border: 1px solid transparent; background: transparent; color: var(--text-muted); border-radius: 9px; padding: 8px 12px; }
+.selection-actions button.active { background: var(--chip-active); color: var(--brand-text); border-color: var(--chip-active-border); box-shadow: 0 2px 8px var(--chip-shadow); }
 .search { min-width: 240px; flex: 1; border: 1px solid var(--border-strong); border-radius: 12px; padding: 11px 14px; background: var(--surface-input); color: var(--text); outline: none; }
 .search::placeholder { color: var(--text-faint); }
 .search:focus { border-color: var(--brand-glow); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-glow) 14%, transparent); }
