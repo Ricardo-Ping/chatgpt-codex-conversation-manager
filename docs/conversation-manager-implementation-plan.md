@@ -3,8 +3,8 @@
 ## 当前状态
 
 - 目标版本：`v0.2.0-preview.1`
-- 当前阶段：发布前验证完成
-- 最后验证提交：`54c4278`
+- 当前阶段：`v0.2.0-preview.1` 已发布
+- 最后验证提交：`e728b7d`
 - 已确认：ChatGPT 使用浏览器桥接；Codex 使用本机 App Server；管理器不提供独立登录。
 
 ## 阶段清单
@@ -15,7 +15,7 @@
 - [x] 移除 WebContentsView、正文、节点和分支
 - [x] ChatGPT/Codex 双标签会话管理 UI
 - [x] 单元、类型、构建、打包和安全审计
-- [ ] GitHub 仓库重命名与 `v0.2.0-preview.1` Release
+- [x] GitHub 仓库重命名与 `v0.2.0-preview.1` Release
 
 ## 实现约束
 
