@@ -29,20 +29,23 @@ function Segmented<T extends string>(props: { value: T; options: Array<[T, React
 function App() {
   const [page, setPage] = useState<Page>("chatgpt");
   const [version, setVersion] = useState("");
-  const [bridge, setBridge] = useState<PairingState>({ paired: false, connected: false, code: null, expiresAt: null });
+  const [bridge, setBridge] = useState<PairingState>({ paired: false, connected: false, code: null, expiresAt: null, extensionVersion: null });
   const [codexReady, setCodexReady] = useState<boolean | null>(null);
   const reportCodexStatus = useCallback((available: boolean) => setCodexReady(available), []);
   useEffect(() => { void window.conversationManager.appVersion().then(setVersion); }, []);
   useEffect(() => { const read = () => void window.conversationManager.chatgpt.state().then(setBridge); read(); const timer = window.setInterval(read, 3000); return () => window.clearInterval(timer); }, []);
+  const extensionMismatch = Boolean(bridge.extensionVersion && version && bridge.extensionVersion !== version);
+  const bridgeDot = extensionMismatch ? "warn" : bridge.connected ? "ok" : bridge.paired ? "warn" : "off";
+  const bridgeText = extensionMismatch ? `扩展 v${bridge.extensionVersion} · 需重载` : bridge.connected ? "已连接" : bridge.paired ? "等待浏览器" : "未配对";
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">CM</span><div><strong>Conversation Manager</strong><small>ChatGPT · Codex</small></div></div>
       <nav className="side-nav" aria-label="平台切换">
-        <button type="button" className={`side-item ${page === "chatgpt" ? "active" : ""}`} aria-current={page === "chatgpt" ? "page" : undefined} onClick={() => setPage("chatgpt")}><span className={`dot ${bridge.connected ? "ok" : bridge.paired ? "warn" : "off"}`} title={bridge.connected ? "桥接已连接" : bridge.paired ? "已配对，等待浏览器" : "未配对"}></span>ChatGPT</button>
+        <button type="button" className={`side-item ${page === "chatgpt" ? "active" : ""}`} aria-current={page === "chatgpt" ? "page" : undefined} onClick={() => setPage("chatgpt")}><span className={`dot ${bridgeDot}`} title={extensionMismatch ? `浏览器扩展为 v${bridge.extensionVersion}，与主程序 v${version} 不一致，请在 chrome://extensions 中重新加载` : bridge.connected ? "桥接已连接" : bridge.paired ? "已配对，等待浏览器" : "未配对"}></span>ChatGPT</button>
         <button type="button" className={`side-item ${page === "codex" ? "active" : ""}`} aria-current={page === "codex" ? "page" : undefined} onClick={() => setPage("codex")}><span className={`dot ${codexReady === true ? "ok" : codexReady === false ? "off" : "wait"}`} title={codexReady === true ? "App Server 已连接" : codexReady === false ? "未连接" : "检测中"}></span>Codex</button>
       </nav>
       <div className="side-status" aria-label="连接状态">
-        <p><span className={`dot ${bridge.connected ? "ok" : bridge.paired ? "warn" : "off"}`}></span><strong>ChatGPT 桥接</strong>{bridge.connected ? "已连接" : bridge.paired ? "等待浏览器" : "未配对"}</p>
+        <p className={extensionMismatch ? "stale" : undefined}><span className={`dot ${bridgeDot}`}></span><strong>ChatGPT 桥接</strong>{bridgeText}</p>
         <p><span className={`dot ${codexReady === true ? "ok" : codexReady === false ? "off" : "wait"}`}></span><strong>Codex 服务</strong>{codexReady === true ? "已连接" : codexReady === false ? "未连接" : "检测中"}</p>
       </div>
       <div className="side-footer">

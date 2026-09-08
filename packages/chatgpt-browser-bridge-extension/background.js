@@ -32,7 +32,7 @@ async function startPolling() {
       if (!bridgeSecret) { try { await pair(); ({ bridgeSecret } = await chrome.storage.local.get("bridgeSecret")); } catch {} }
       if (!bridgeSecret) break;
       try {
-        const response = await fetch(`${BASE}/commands`, { headers: { Authorization: `Bearer ${bridgeSecret}` } });
+        const response = await fetch(`${BASE}/commands`, { headers: { Authorization: `Bearer ${bridgeSecret}`, "X-Extension-Version": chrome.runtime.getManifest().version } });
         if (response.status === 401) { await chrome.storage.local.remove("bridgeSecret"); break; }
         if (response.ok) { delay = 1500; for (const command of await response.json()) void run(command, bridgeSecret); }
         else delay = 5000;

@@ -12,7 +12,7 @@ export type BridgeCommandType = "status" | "accounts" | "list" | "batch" | "canc
 export interface BridgeCommand { protocolVersion: 1; requestId: string; type: BridgeCommandType; createdAt: number; expiresAt: number; payload: unknown }
 export interface BridgeError { code: string; message: string; retryable: boolean }
 export interface BridgeResult { protocolVersion: 1; requestId: string; ok: boolean; payload?: unknown; error?: BridgeError }
-export interface PairingState { paired: boolean; connected: boolean; code: string | null; expiresAt: number | null }
+export interface PairingState { paired: boolean; connected: boolean; code: string | null; expiresAt: number | null; extensionVersion: string | null }
 
 type Pending = { resolve(value: BridgeResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
 
@@ -25,6 +25,7 @@ export class ChatGptBridgeServer {
   #commands: BridgeCommand[] = [];
   #pending = new Map<string, Pending>();
   #lastSeen = 0;
+  #extensionVersion: string | null = null;
 
   constructor(secretFile: string, port = BRIDGE_PORT) { this.#secretFile = secretFile; this.#port = port; }
 
@@ -53,7 +54,7 @@ export class ChatGptBridgeServer {
 
   state(now = Date.now()): PairingState {
     if (this.#pairing && this.#pairing.expiresAt <= now) this.#pairing = null;
-    return { paired: Boolean(this.#secret), connected: now - this.#lastSeen < 15_000, code: this.#pairing?.code ?? null, expiresAt: this.#pairing?.expiresAt ?? null };
+    return { paired: Boolean(this.#secret), connected: now - this.#lastSeen < 15_000, code: this.#pairing?.code ?? null, expiresAt: this.#pairing?.expiresAt ?? null, extensionVersion: this.#extensionVersion };
   }
 
   async clearPairing(): Promise<void> { this.#secret = null; this.#pairing = null; await rm(this.#secretFile, { force: true }); }
@@ -77,6 +78,8 @@ export class ChatGptBridgeServer {
       if (req.method === "POST" && req.url === "/v1/pair") { const origin = req.headers.origin; if (origin && !isExtensionOrigin(origin)) return json(res, 403, { error: "invalid_origin" }); return await this.#pair(req, res); }
       if (!this.#authorize(req)) return json(res, 401, { error: "unauthorized" });
       this.#lastSeen = Date.now();
+      const reported = req.headers["x-extension-version"];
+      if (typeof reported === "string" && /^[0-9.]{1,20}$/.test(reported)) this.#extensionVersion = reported;
       if (req.method === "GET" && req.url === "/v1/commands") return json(res, 200, this.#commands.splice(0, 20));
       if (req.method === "POST" && req.url === "/v1/results") {
         const result = await readJson<BridgeResult>(req);

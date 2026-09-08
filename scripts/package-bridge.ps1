@@ -19,6 +19,10 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 New-Item -ItemType Directory -Path $release -Force | Out-Null
 $files = @("manifest.json", "background.js", "content.js", "bridge-core.js", "popup.html", "popup.css", "popup.js")
 foreach ($file in $files) { Copy-Item -LiteralPath (Join-Path $source $file) -Destination $stage }
+$stagedManifest = Join-Path $stage "manifest.json"
+$manifestText = [System.IO.File]::ReadAllText($stagedManifest)
+$manifestText = ([regex]'("version"\s*:\s*")[^"]*(")').Replace($manifestText, ('${1}' + $version + '${2}'), 1)
+[System.IO.File]::WriteAllText($stagedManifest, $manifestText, [System.Text.UTF8Encoding]::new($false))
 if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $archive -CompressionLevel Optimal
 Remove-Item -LiteralPath $stage -Recurse -Force

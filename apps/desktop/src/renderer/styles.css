@@ -65,6 +65,7 @@ button { cursor: pointer; }
 .side-status { display: grid; gap: 7px; padding: 11px 12px; background: var(--chip); border-radius: 12px; }
 .side-status p { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); }
 .side-status p strong { color: var(--text); font-size: 11.5px; margin-right: auto; }
+.side-status p.stale, .side-status p.stale strong { color: var(--warn); }
 .side-footer { margin-top: auto; display: grid; gap: 6px; }
 .side-version { color: var(--text-faint); font-size: 11px; padding-left: 12px; }
 
