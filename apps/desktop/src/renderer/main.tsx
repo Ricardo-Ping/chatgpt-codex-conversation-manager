@@ -14,7 +14,7 @@ type Account = { key: string; label: string; isDefault: boolean };
 type ConfirmOptions = { title: string; body: string; items?: string[]; requireCount?: number };
 const ageOptions: Array<[AgeFilter, string]> = [["all", "全部"], ["day", "1 天前"], ["week", "1 周前"], ["month", "1 个月前"], ["halfYear", "半年前"]];
 const stateLabels: Record<ConversationState, string> = { active: "未归档", archived: "已归档", scheduled: "已安排" };
-const BACKGROUND_SYNC_INTERVAL_MS = 2 * 60 * 1000;
+const BACKGROUND_SYNC_INTERVAL_MS = 10 * 60 * 1000;
 
 function Segmented<T extends string>(props: { value: T; options: Array<[T, React.ReactNode]>; onChange(value: T): void; vertical?: boolean; className?: string; "aria-label"?: string }) {
   const nodes = useRef(new Map<T, HTMLButtonElement>());
