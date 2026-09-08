@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, shell, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, type IpcMainInvokeEvent } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -195,7 +195,7 @@ function threadPayload(payload: unknown, item: { id: string; title: string; prev
 function threadLike(item: { id: string; title: string; preview: string; cwd: string | null }): { id: string; name: string | null; preview: string | null; cwd: string | null } { return { id: item.id, name: item.title || null, preview: item.preview || null, cwd: item.cwd }; }
 
 ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? "已连接本机 Codex App Server" : "已自动连接 ChatGPT/Codex 桌面客户端内置 App Server") : "未找到 ChatGPT/Codex 桌面客户端或可用的 Codex App Server", command: codexCommand }; });
-ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const result = await dialog.showOpenDialog(mainWindow, { title: M().pickCodexExe, properties: ["openFile"], filters: [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }] }); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
+ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const dialogOptions: Electron.OpenDialogOptions = { title: M().pickCodexExe, properties: ["openFile"] }; if (process.platform !== "darwin") dialogOptions.filters = [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }]; const result = await dialog.showOpenDialog(mainWindow, dialogOptions); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
 ipcMain.handle("codex:list", async (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return codex.list({ cursor: typeof input.cursor === "string" ? input.cursor : null, limit: 100, archived: input.archived === true, searchTerm: typeof input.searchTerm === "string" ? input.searchTerm.slice(0, 200) : null, full: input.full === true }); });
 ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); const id = requireId(value); try { const child = process.platform === "win32" ? spawn("powershell.exe", ["-NoExit", "-EncodedCommand", Buffer.from(`& '${codexCommand.replaceAll("'", "''")}' resume '${id}'`, "utf16le").toString("base64")], { detached: true, stdio: "ignore", windowsHide: false }) : spawn(codexCommand, ["resume", id], { detached: true, stdio: "ignore" }); child.unref(); return { opened: true }; } catch { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; } });
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || "未命名任务", derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
@@ -262,7 +262,19 @@ if (!app.isPackaged && process.env.CM_USER_DATA_DIR) app.setPath("userData", pro
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 else app.on("second-instance", () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } });
-if (app.isPackaged) { app.setAsDefaultProtocolClient("conversation-manager"); app.setAsDefaultProtocolClient("cgn"); }
+if (app.isPackaged && process.platform === "win32") { app.setAsDefaultProtocolClient("conversation-manager"); app.setAsDefaultProtocolClient("cgn"); }
+
+// mac 需要应用菜单才能使用 Cmd+C/V/Q 等标准快捷键；Windows 保持无菜单栏（autoHideMenuBar）
+if (process.platform === "darwin") {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { role: "appMenu" },
+    { role: "fileMenu" },
+    { role: "editMenu" },
+    { role: "viewMenu" },
+    { role: "windowMenu" }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 // 开发/测试时可用 CM_USER_DATA_DIR 指向独立目录，避免与已安装实例共享单实例锁和缓存
 if (!app.isPackaged && process.env.CM_USER_DATA_DIR) app.setPath("userData", process.env.CM_USER_DATA_DIR);
 app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); LANG = await loadLanguagePreference(userData); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret")); indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } autoUpdateEnabled = await loadUpdatePreference(); updateState = { ...updateState, currentVersion: app.getVersion(), autoUpdate: autoUpdateEnabled }; configureUpdater(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });

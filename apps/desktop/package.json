@@ -12,7 +12,8 @@
     "test": "vitest run --exclude dist/**",
     "dev": "pnpm -w build && electron .",
     "start": "electron .",
-    "package:win": "pnpm -w build && electron-builder --win nsis portable"
+    "package:win": "pnpm -w build && electron-builder --win nsis portable",
+    "package:mac": "pnpm -w build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@conversation-manager/chatgpt-bridge-server": "workspace:*",
@@ -65,6 +66,29 @@
         "nsis",
         "portable"
       ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "darkModeSupport": true,
+      "icon": "build/icon.png",
+      "artifactName": "Conversation-Manager-${version}-mac-${arch}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "Conversation-Manager-${version}-dmg-${arch}.${ext}"
     },
     "nsis": {
       "artifactName": "Conversation-Manager-${version}-setup-${arch}.${ext}",
