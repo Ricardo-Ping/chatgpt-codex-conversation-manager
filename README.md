@@ -62,7 +62,7 @@ pnpm package:win
 
 ## 当前限制
 
-- `v0.2.4` 支持 Windows x64、Chrome 和 Edge。
+- `v0.2.5` 支持 Windows x64、Chrome 和 Edge。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
 - macOS、Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 

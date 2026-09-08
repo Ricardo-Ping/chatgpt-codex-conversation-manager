@@ -1,6 +1,7 @@
 import type { CachedConversation, PairingState } from "@conversation-manager/chatgpt-bridge-server";
 import type { ThreadListResponse } from "@conversation-manager/codex-app-server-adapter";
 
+export type ThemePreference = "system" | "light" | "dark";
 export interface UpdateState { phase: "unsupported" | "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error"; currentVersion: string; version: string | null; percent: number | null; message: string; autoUpdate: boolean; canAutoInstall: boolean }
 export interface CacheSnapshot { syncedAt: number; fullSyncedAt: number | null; records: CachedConversation[] }
 export interface BatchResult { succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] }
@@ -29,6 +30,7 @@ declare global {
       previewDelete(ids: string[]): Promise<{ tasks: Array<{ id: string; title: string; derived: boolean }>; missing: string[]; running: string[]; confirmationToken: string | null }>;
       runBatch(action: "archive" | "unarchive" | "delete", ids: string[], confirmationToken?: string): Promise<BatchResult>;
     };
+    theme: { get(): Promise<ThemePreference>; set(value: ThemePreference): Promise<ThemePreference> };
     updates: { getState(): Promise<UpdateState>; setAutoUpdate(enabled: boolean): Promise<UpdateState>; check(): Promise<UpdateState>; install(): Promise<void>; openRelease(): Promise<void>; onState(callback: (state: UpdateState) => void): () => void };
   }; }
 }
