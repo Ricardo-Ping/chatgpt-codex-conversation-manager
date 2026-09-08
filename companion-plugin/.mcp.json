@@ -1,6 +1,6 @@
 {
-  "cgn-desktop": {
-    "command": "cgn-desktop-mcp",
+  "conversation-manager": {
+    "command": "conversation-manager-mcp",
     "args": ["--stdio"]
   }
 }

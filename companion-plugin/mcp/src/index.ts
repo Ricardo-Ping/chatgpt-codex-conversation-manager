@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { CodexAppServer, type CodexThread } from "@cgn/codex-app-server-adapter";
+import { CodexAppServer, type CodexThread } from "@conversation-manager/codex-app-server-adapter";
 import { ConfirmationStore } from "./confirmation.js";
 
 type Action = "archive" | "restore" | "delete";
@@ -34,7 +34,7 @@ function fingerprint(records: CodexThread[]): string {
   return records.map((record) => `${record.id}:${record.updatedAt}:${record.status?.type ?? "unknown"}`).sort().join("|");
 }
 
-const server = new McpServer({ name: "cgn-desktop", version: "0.1.0-preview.3" });
+const server = new McpServer({ name: "conversation-manager", version: "0.2.0-preview.1" });
 
 server.registerTool("desktop_status", {
   description: "Check whether the local Codex App Server is available.",
@@ -107,17 +107,17 @@ for (const [name, action, destructive] of [
   });
 }
 
-server.registerTool("open_cgn_desktop", {
-  description: "Open the installed CGN Desktop application.",
+server.registerTool("open_conversation_manager", {
+  description: "Open the installed Conversation Manager application.",
   inputSchema: {},
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 }, async () => {
-  const url = "cgn://open";
+  const url = "conversation-manager://open";
   const child = process.platform === "win32"
     ? spawn("explorer.exe", [url], { detached: true, stdio: "ignore", windowsHide: true })
     : spawn(process.platform === "darwin" ? "open" : "xdg-open", [url], { detached: true, stdio: "ignore" });
   child.unref();
-  return { content: [{ type: "text", text: "Requested CGN Desktop to open." }] };
+  return { content: [{ type: "text", text: "Requested Conversation Manager to open." }] };
 });
 
 await server.connect(new StdioServerTransport());

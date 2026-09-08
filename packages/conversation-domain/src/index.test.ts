@@ -11,7 +11,7 @@ const base: ManagedConversation = {
   pinned: false,
   running: false,
   current: false,
-  capabilities: ["read", "archive"]
+  capabilities: ["open", "archive"]
 };
 
 describe("conversation domain", () => {

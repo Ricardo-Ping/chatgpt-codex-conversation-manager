@@ -10,13 +10,13 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@cgn/chatgpt-web-adapter':
+      '@conversation-manager/chatgpt-bridge-server':
         specifier: workspace:*
-        version: link:../../packages/chatgpt-web-adapter
-      '@cgn/codex-app-server-adapter':
+        version: link:../../packages/chatgpt-bridge-server
+      '@conversation-manager/codex-app-server-adapter':
         specifier: workspace:*
         version: link:../../packages/codex-app-server-adapter
-      '@cgn/conversation-domain':
+      '@conversation-manager/conversation-domain':
         specifier: workspace:*
         version: link:../../packages/conversation-domain
       electron-updater:
@@ -59,7 +59,7 @@ importers:
 
   companion-plugin/mcp:
     dependencies:
-      '@cgn/codex-app-server-adapter':
+      '@conversation-manager/codex-app-server-adapter':
         specifier: workspace:*
         version: link:../../packages/codex-app-server-adapter
       '@modelcontextprotocol/sdk':
@@ -79,7 +79,7 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0(@types/node@22.20.1)(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0))
 
-  packages/chatgpt-web-adapter:
+  packages/chatgpt-bridge-server:
     devDependencies:
       '@types/node':
         specifier: ^22.19.13
@@ -87,6 +87,11 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@22.20.1)(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0))
+
+  packages/chatgpt-browser-bridge-extension: {}
 
   packages/codex-app-server-adapter:
     devDependencies:

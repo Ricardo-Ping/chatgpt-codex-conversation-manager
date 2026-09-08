@@ -1,11 +1,11 @@
 {
-  "name": "cgn-desktop-local",
+  "name": "conversation-manager-local",
   "interface": {
-    "displayName": "CGN Desktop Local"
+    "displayName": "Conversation Manager Local"
   },
   "plugins": [
     {
-      "name": "chatgpt-codex-conversation-navigator-desktop",
+      "name": "chatgpt-codex-conversation-manager",
       "source": {
         "source": "local",
         "path": "./companion-plugin"

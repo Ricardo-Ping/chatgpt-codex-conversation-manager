@@ -1,291 +1,90 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { filterConversations, type AgeFilter, type ManagedConversation } from "@cgn/conversation-domain";
-import type { CodexThread } from "@cgn/codex-app-server-adapter";
+import { bulkSelectableIds, filterConversations, type AgeFilter, type ConversationState, type ManagedConversation } from "@conversation-manager/conversation-domain";
+import type { CachedConversation, PairingState } from "@conversation-manager/chatgpt-bridge-server";
+import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
 import type { UpdateState } from "./global.js";
 import "./styles.css";
 
-type Mode = "chatgpt" | "codex" | "settings";
-
-function threadTitle(thread: CodexThread): string {
-  return thread.name?.trim() || thread.preview?.trim() || "未命名任务";
-}
-
-function toManaged(thread: CodexThread, archived: boolean): ManagedConversation {
-  return {
-    source: "codex",
-    id: thread.id,
-    title: threadTitle(thread),
-    createdAt: thread.createdAt * 1000,
-    updatedAt: thread.updatedAt * 1000,
-    state: archived ? "archived" : "active",
-    projectId: thread.projectId ?? undefined,
-    cwd: thread.cwd,
-    pinned: false,
-    running: thread.status?.type === "active",
-    current: false,
-    capabilities: archived ? ["read", "restore", "delete"] : ["read", "archive", "delete", "fork"]
-  };
-}
+type Page = "chatgpt" | "codex" | "settings";
+type Account = { key: string; label: string; isDefault: boolean };
+const ageOptions: Array<[AgeFilter, string]> = [["all", "全部"], ["day", "1 天前"], ["week", "1 周前"], ["month", "1 个月前"], ["halfYear", "半年前"]];
 
 function App() {
-  const [mode, setMode] = useState<Mode>("chatgpt");
-  const [version, setVersion] = useState("preview");
+  const [page, setPage] = useState<Page>("chatgpt"); const [version, setVersion] = useState("");
+  useEffect(() => { void window.conversationManager.appVersion().then(setVersion); }, []);
+  return <div className="app-shell">
+    <header className="topbar"><div className="brand"><span className="brand-mark">CM</span><div><strong>Conversation Manager</strong><small>ChatGPT · Codex</small></div></div>
+      <nav aria-label="平台切换"><button className={page === "chatgpt" ? "active" : ""} onClick={() => setPage("chatgpt")}>ChatGPT</button><button className={page === "codex" ? "active" : ""} onClick={() => setPage("codex")}>Codex</button></nav>
+      <button className={`icon-button ${page === "settings" ? "active" : ""}`} onClick={() => setPage("settings")} aria-label="设置">设置</button>
+    </header>
+    <main>{page === "chatgpt" ? <ChatGptWorkspace /> : page === "codex" ? <CodexWorkspace /> : <Settings version={version} />}</main>
+  </div>;
+}
 
-  useEffect(() => { void window.cgn.appVersion().then(setVersion); }, []);
-  useEffect(() => { void window.cgn.setMode(mode); }, [mode]);
+function ChatGptWorkspace() {
+  const [bridge, setBridge] = useState<PairingState>({ paired: false, connected: false, code: null, expiresAt: null });
+  const [accounts, setAccounts] = useState<Account[]>([]); const [accountKey, setAccountKey] = useState(""); const [state, setState] = useState<ConversationState>("active");
+  const [records, setRecords] = useState<ManagedConversation[]>([]); const [syncedAt, setSyncedAt] = useState<number | null>(null); const [compatible, setCompatible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
+  useEffect(() => { void window.conversationManager.chatgpt.cachedAccounts().then((value) => { setAccounts(value.accounts); setAccountKey(value.accounts[0]?.key || ""); }); }, []);
+  useEffect(() => { const read = () => void window.conversationManager.chatgpt.state().then(setBridge); read(); const timer = window.setInterval(read, 3000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => { if (!bridge.connected) return; void window.conversationManager.chatgpt.accounts().then((value) => { setAccounts(value.accounts); setAccountKey((old) => old || value.accounts.find((item) => item.isDefault)?.key || value.accounts[0]?.key || ""); }).catch((cause) => setError(message(cause))); }, [bridge.connected]);
+  useEffect(() => { if (!accountKey) return; setRecords([]); setNotice(""); setCompatible(false); void window.conversationManager.chatgpt.cached(accountKey, state as CachedConversation["state"]).then((cache) => { if (cache) { setRecords(cache.records.map(toChatManaged)); setSyncedAt(cache.syncedAt); } if (bridge.connected) void sync(false); }); }, [accountKey, state, bridge.connected]);
+  async function sync(full: boolean) { if (!accountKey || !bridge.connected) return; setLoading(true); setCompatible(false); setError(""); try { const account = accounts.find((item) => item.key === accountKey); const cache = await window.conversationManager.chatgpt.list(accountKey, account?.label || "ChatGPT 账号", state as CachedConversation["state"], full); setRecords((cache?.records || []).map(toChatManaged)); setSyncedAt(cache?.syncedAt || null); setCompatible(true); setNotice(full ? "完整校准完成" : "后台同步完成"); } catch (cause) { setError(message(cause)); } finally { setLoading(false); } }
+  if (!bridge.paired) return <ConnectionCard bridge={bridge} onPair={async () => setBridge(await window.conversationManager.chatgpt.beginPairing())} />;
+  return <ManagerLayout source="chatgpt" title="ChatGPT 会话" subtitle={bridge.connected ? `浏览器桥接已连接${syncedAt ? ` · ${relativeTime(syncedAt)}同步` : ""}` : "桥接已断开，当前为只读缓存"} accounts={accounts} accountKey={accountKey} onAccount={setAccountKey} state={state} onState={setState} records={records} writable={bridge.connected && compatible && !loading} refreshable={bridge.connected} loading={loading} error={error} notice={notice} onRefresh={() => sync(true)} onOpen={(record) => window.conversationManager.chatgpt.openConversation(record.id)} onCancel={() => window.conversationManager.chatgpt.cancel()} onBatch={async (action, ids) => {
+    let token: string | undefined; if (action === "delete") { if (!confirmDelete(ids, records)) return null; token = (await window.conversationManager.chatgpt.previewDelete(ids)).confirmationToken; }
+    const result = await window.conversationManager.chatgpt.runBatch(accountKey, action, ids, token); const cache = await window.conversationManager.chatgpt.cached(accountKey, state as CachedConversation["state"]); setRecords((cache?.records || []).map(toChatManaged)); return result;
+  }} />;
+}
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span>CGN</span><strong>Desktop</strong></div>
-        <nav aria-label="产品切换">
-          <button className={mode === "chatgpt" ? "active" : ""} onClick={() => setMode("chatgpt")}>ChatGPT</button>
-          <button className={mode === "codex" ? "active" : ""} onClick={() => setMode("codex")}>Codex</button>
-          <button className={mode === "settings" ? "active" : ""} onClick={() => setMode("settings")}>设置</button>
-        </nav>
-        <p className="version">v{version}</p>
-      </aside>
-      <main className="workspace">
-        {mode === "codex" && <CodexWorkspace />}
-        {mode === "settings" && <Settings />}
-        {mode === "chatgpt" && <div className="loading-view">正在加载 ChatGPT…</div>}
-      </main>
-    </div>
-  );
+function ConnectionCard({ bridge, onPair }: { bridge: PairingState; onPair(): Promise<void> }) {
+  return <section className="connection-card"><div className="connection-art">↔</div><p className="eyebrow">安全浏览器桥接</p><h1>复用浏览器中的 ChatGPT 登录</h1><p>无需在管理器中再次登录。安装配套扩展后输入一次性配对码，Cookie 和访问令牌始终留在浏览器。</p>
+    {bridge.code ? <div className="pair-code"><span>配对码</span><strong>{bridge.code}</strong><small>5 分钟内有效</small></div> : <button className="primary" onClick={() => void onPair()}>生成配对码</button>}
+    <div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>打开扩展目录</button><button onClick={() => void window.conversationManager.chatgpt.openChatGpt()}>打开 ChatGPT</button></div>
+  </section>;
 }
 
 function CodexWorkspace() {
-  const [archived, setArchived] = useState(false);
-  const [query, setQuery] = useState("");
-  const [age, setAge] = useState<AgeFilter>("all");
-  const [threads, setThreads] = useState<CodexThread[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [detail, setDetail] = useState<CodexThread | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-
-  async function load(full = false) {
-    setLoading(true);
-    setError("");
-    setSelected(new Set());
-    try {
-      const all: CodexThread[] = [];
-      let cursor: string | null = null;
-      do {
-        const page = await window.cgn.codex.list({ cursor, archived, searchTerm: query.trim() || undefined, full });
-        all.push(...page.data);
-        cursor = page.nextCursor;
-      } while (cursor);
-      setThreads([...new Map(all.map((thread) => [thread.id, thread])).values()]);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void load(); }, 200);
-    return () => window.clearTimeout(timer);
-  }, [archived, query]);
-
-  const visible = useMemo(() => {
-    const ids = new Set(filterConversations(threads.map((thread) => toManaged(thread, archived)), {
-      state: archived ? "archived" : "active",
-      age
-    }).map((record) => record.id));
-    return threads.filter((thread) => ids.has(thread.id));
-  }, [threads, archived, age]);
-
-  const selectable = visible.filter((thread) => thread.status?.type !== "active").map((thread) => thread.id);
-  const allSelected = selectable.length > 0 && selectable.every((id) => selected.has(id));
-
-  function toggle(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-
-  async function openThread(thread: CodexThread) {
-    setError("");
-    try {
-      const response = await window.cgn.codex.read(thread.id);
-      setDetail(response.thread);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
-  async function runBatch(action: "archive" | "unarchive" | "delete") {
-    const ids = [...selected];
-    if (!ids.length) return;
-    setLoading(true);
-    setError("");
-    try {
-      let confirmationToken: string | undefined;
-      if (action === "delete") {
-        const preview = await window.cgn.codex.previewDelete(ids);
-        if (preview.missing.length) throw new Error(`找不到 ${preview.missing.length} 个任务，请刷新后重试`);
-        if (preview.running.length) throw new Error(`有 ${preview.running.length} 个任务仍在运行，已停止删除`);
-        if (!preview.confirmationToken) throw new Error("无法生成安全删除确认");
-        const shown = preview.tasks.slice(0, 10).map((task) => `• ${task.title}${task.derived ? "（派生任务）" : ""}`).join("\n");
-        const more = preview.tasks.length > 10 ? `\n…另有 ${preview.tasks.length - 10} 个` : "";
-        if (preview.tasks.length > 20) {
-          const answer = window.prompt(`将永久删除 ${preview.tasks.length} 个任务（含派生任务）：\n\n${shown}${more}\n\n请输入 ${preview.tasks.length} 确认：`);
-          if (answer !== String(preview.tasks.length)) return;
-        } else if (!window.confirm(`永久删除 ${preview.tasks.length} 个任务（含派生任务）：\n\n${shown}${more}\n\n此操作无法撤销。`)) return;
-        confirmationToken = preview.confirmationToken;
-      }
-      const result = await window.cgn.codex.runBatch(action, ids, confirmationToken);
-      if (action === "delete") await load();
-      else setThreads((current) => current.filter((thread) => !result.succeeded.includes(thread.id)));
-      setSelected(new Set(result.failed.map((item) => item.id)));
-      setNotice(`成功 ${result.succeeded.length}，失败 ${result.failed.length}`);
-      if (result.failed.length) setError(result.failed.map((item) => `${item.id}: ${item.message}`).join("\n"));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <section className="codex-page">
-      <header className="page-header">
-        <div><p className="eyebrow">本机 Codex App Server</p><h1>任务管理</h1></div>
-        <button className="secondary" onClick={() => void load(true)} disabled={loading}>完整校准</button>
-      </header>
-      <div className="toolbar">
-        <div className="segmented" aria-label="归档状态">
-          <button className={!archived ? "active" : ""} onClick={() => setArchived(false)}>未归档</button>
-          <button className={archived ? "active" : ""} onClick={() => setArchived(true)}>已归档</button>
-        </div>
-        <input aria-label="搜索任务" placeholder="搜索标题" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select aria-label="更新时间" value={age} onChange={(event) => setAge(event.target.value as AgeFilter)}>
-          <option value="all">全部时间</option><option value="day">1 天前</option><option value="week">1 周前</option>
-          <option value="month">1 个月前</option><option value="halfYear">半年前</option>
-        </select>
-      </div>
-      <div className="selection-bar">
-        <button className={allSelected ? "active" : ""} onClick={() => setSelected(allSelected ? new Set() : new Set(selectable))}>全选当前结果</button>
-        <button onClick={() => setSelected(new Set())}>清空选择</button>
-        <span>已选 {selected.size} · 当前 {visible.length}</span>
-        <div className="batch-actions">
-          <button disabled={!selected.size || loading} onClick={() => void runBatch(archived ? "unarchive" : "archive")}>{archived ? "恢复" : "归档"}</button>
-          <button className="danger" disabled={!selected.size || loading} onClick={() => void runBatch("delete")}>删除</button>
-        </div>
-      </div>
-      {error && <pre className="alert error">{error}</pre>}
-      {notice && <p className="alert success">{notice}</p>}
-      <div className="content-grid">
-        <div className="thread-list" aria-busy={loading}>
-          {loading && !threads.length && <p className="empty">正在读取任务…</p>}
-          {!loading && !visible.length && <p className="empty">没有符合条件的任务</p>}
-          {visible.map((thread) => {
-            const running = thread.status?.type === "active";
-            return (
-              <article className={`thread-row ${detail?.id === thread.id ? "current" : ""}`} key={thread.id}>
-                <input type="checkbox" aria-label={`选择 ${threadTitle(thread)}`} checked={selected.has(thread.id)} disabled={running} onChange={() => toggle(thread.id)} />
-                <button className="thread-main" onClick={() => void openThread(thread)}>
-                  <strong>{threadTitle(thread)}</strong>
-                  <small>{new Date(thread.updatedAt * 1000).toLocaleString()} · {thread.cwd || "未知目录"}</small>
-                </button>
-                {running && <span className="badge">运行中</span>}
-              </article>
-            );
-          })}
-        </div>
-        <ThreadDetail thread={detail} onFork={async (threadId, lastTurnId) => {
-          if (!window.confirm("从所选轮次创建 Codex 分支？")) return;
-          try {
-            const result = await window.cgn.codex.fork(threadId, lastTurnId);
-            setNotice(`已创建分支：${threadTitle(result.thread)}`);
-            await load();
-          } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
-        }} />
-      </div>
-    </section>
-  );
+  const [available, setAvailable] = useState<boolean | null>(null); const [status, setStatus] = useState("正在连接本机 Codex…"); const [archived, setArchived] = useState(false); const [records, setRecords] = useState<ManagedConversation[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
+  async function load(full = false) { setLoading(true); setError(""); try { const all: CodexThread[] = []; let cursor: string | null = null; do { const page = await window.conversationManager.codex.list({ cursor, archived, full }); all.push(...page.data); cursor = page.nextCursor; } while (cursor); setRecords([...new Map(all.map((thread) => [thread.id, toCodexManaged(thread, archived)])).values()]); setNotice(full ? "完整校准完成" : "同步完成"); } catch (cause) { setError(message(cause)); } finally { setLoading(false); } }
+  useEffect(() => { void window.conversationManager.codex.status().then((value) => { setAvailable(value.available); setStatus(value.message); if (value.available) void load(); }); }, []);
+  useEffect(() => { if (available) void load(); }, [archived]);
+  if (available === false) return <section className="connection-card"><div className="connection-art">⌘</div><p className="eyebrow">本机 App Server</p><h1>暂时无法连接 Codex</h1><p>{status}</p><button className="primary" onClick={() => location.reload()}>重新检测</button><button onClick={() => void window.conversationManager.openExternal("https://developers.openai.com/codex/app-server")}>查看安装文档</button></section>;
+  return <ManagerLayout source="codex" title="Codex 任务" subtitle={status} state={archived ? "archived" : "active"} onState={(value) => setArchived(value === "archived")} records={records} writable={available === true && !loading} refreshable={available === true} loading={loading} error={error} notice={notice} onRefresh={() => load(true)} onOpen={async (record) => { const result = await window.conversationManager.codex.open(record.id); if (!result.opened) setNotice("已复制恢复命令，请在终端运行"); }} onBatch={async (action, ids) => {
+    const codexAction = action === "restore" ? "unarchive" : action; let token: string | undefined;
+    if (action === "delete") { if (!confirmDelete(ids, records)) return null; const preview = await window.conversationManager.codex.previewDelete(ids); if (preview.missing.length || preview.running.length || !preview.confirmationToken) throw new Error("部分任务不存在或仍在运行，无法删除"); if (preview.tasks.length > ids.length && !window.confirm(`同时会删除 ${preview.tasks.length - ids.length} 个派生任务，是否继续？`)) return null; token = preview.confirmationToken; }
+    const result = await window.conversationManager.codex.runBatch(codexAction, ids, token); const removed = new Set(result.succeeded); setRecords((old) => old.filter((record) => !removed.has(record.id))); return result;
+  }} />;
 }
 
-function ThreadDetail({ thread, onFork }: { thread: CodexThread | null; onFork(threadId: string, lastTurnId?: string): Promise<void> }) {
-  if (!thread) return <aside className="thread-detail empty">选择任务查看完整内容</aside>;
-  return (
-    <aside className="thread-detail">
-      <header><h2>{threadTitle(thread)}</h2><button className="secondary" disabled={thread.status?.type === "active"} onClick={() => void onFork(thread.id)}>从末尾分支</button></header>
-      <p className="detail-meta">{thread.cwd}</p>
-      {(thread.turns ?? []).map((turn) => (
-        <section className="turn" key={turn.id}>
-          <div className="turn-heading"><strong>轮次</strong><button onClick={() => void onFork(thread.id, turn.id)}>从这里分支</button></div>
-          {turn.items.map((item, index) => (
-            <details key={`${turn.id}-${index}`} open={index < 2}>
-              <summary>{String(item.type ?? "项目")}</summary>
-              <pre>{JSON.stringify(item, null, 2)}</pre>
-            </details>
-          ))}
-        </section>
-      ))}
-    </aside>
-  );
+function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subtitle: string; accounts?: Account[]; accountKey?: string; onAccount?(key: string): void; state: ConversationState; onState(state: ConversationState): void; records: ManagedConversation[]; writable: boolean; refreshable: boolean; loading: boolean; error: string; notice: string; onRefresh(): void | Promise<void>; onOpen(record: ManagedConversation): void | Promise<void>; onCancel?(): Promise<{ cancelled: boolean }>; onBatch(action: "archive" | "restore" | "delete", ids: string[]): Promise<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] } | null> }) {
+  const [query, setQuery] = useState(""); const deferredQuery = useDeferredValue(query); const [age, setAge] = useState<AgeFilter>("all"); const [sort, setSort] = useState<"newest" | "oldest">("newest"); const [selected, setSelected] = useState<Set<string>>(new Set()); const [busy, setBusy] = useState(false); const [localNotice, setLocalNotice] = useState(""); const [limit, setLimit] = useState(100);
+  useEffect(() => { setSelected(new Set()); setLimit(100); }, [props.state, props.accountKey, age]);
+  const visible = useMemo(() => filterConversations(props.records, { state: props.state, query: deferredQuery, age }).sort((a, b) => sort === "newest" ? (b.updatedAt ?? 0) - (a.updatedAt ?? 0) : (a.updatedAt ?? 0) - (b.updatedAt ?? 0)), [props.records, props.state, deferredQuery, age, sort]); const shown = visible.slice(0, limit); const selectable = bulkSelectableIds(visible); const allSelected = selectable.length > 0 && selectable.every((id) => selected.has(id));
+  async function batch(action: "archive" | "restore" | "delete") { const ids = [...selected]; if (!ids.length) return; setBusy(true); setLocalNotice(""); try { const result = await props.onBatch(action, ids); if (!result) return; setSelected(new Set([...result.failed.map((item) => item.id), ...(result.unprocessed || [])])); setLocalNotice(`完成：成功 ${result.succeeded.length}，失败 ${result.failed.length}，未处理 ${result.unprocessed?.length || 0}`); } catch (cause) { setLocalNotice(`操作失败：${message(cause)}`); } finally { setBusy(false); } }
+  return <section className="workspace"><div className="workspace-title"><div><p className="eyebrow">{props.source === "chatgpt" ? "浏览器会话" : "本机任务"}</p><h1>{props.title}</h1><p>{props.subtitle}</p></div><div className="title-actions">{props.accounts && props.accounts.length > 1 && <select value={props.accountKey} onChange={(event) => props.onAccount?.(event.target.value)}>{props.accounts.map((account) => <option key={account.key} value={account.key}>{account.label}</option>)}</select>}<button className="refresh" disabled={props.loading || !props.refreshable} onClick={() => void props.onRefresh()}>{props.loading ? "同步中…" : "完整刷新"}</button></div></div>
+    <div className="toolbar"><div className="segments">{(["active", "archived", ...(props.source === "chatgpt" ? ["scheduled"] : [])] as ConversationState[]).map((value) => <button key={value} className={props.state === value ? "active" : ""} onClick={() => props.onState(value)}>{value === "active" ? "未归档" : value === "archived" ? "已归档" : "已安排"}</button>)}</div><input className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题" aria-label="搜索标题"/><div className="age-filter">{ageOptions.map(([value, label]) => <button key={value} className={age === value ? "active" : ""} onClick={() => setAge(value)}>{label}</button>)}</div><select className="refresh" value={sort} onChange={(event) => setSort(event.target.value as "newest" | "oldest")} aria-label="排序"><option value="newest">最新优先</option><option value="oldest">最早优先</option></select></div>
+    {(props.error || props.notice || localNotice) && <div className={`notice ${props.error ? "error" : ""}`}>{props.error || localNotice || props.notice}</div>}
+    <div className="list" onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 120) setLimit((old) => Math.min(old + 100, visible.length)); }}>
+      <div className="list-head"><span></span><span>{visible.length} 条结果</span><span>最后更新</span></div>
+      {shown.map((record) => { const selectableRow = props.state !== "scheduled" && !record.running && record.capabilities.some((value) => value === "archive" || value === "restore" || value === "delete"); return <div className={`row ${selected.has(record.id) ? "selected" : ""}`} key={record.id}><label className="check"><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => setSelected((old) => { const next = new Set(old); next.has(record.id) ? next.delete(record.id) : next.add(record.id); return next; })}/><span></span></label><button className="row-main" onClick={() => void props.onOpen(record)}><strong>{record.title}</strong><small>{record.projectId ? "项目会话" : record.cwd || (record.pinned ? "置顶会话" : props.source === "chatgpt" ? "ChatGPT" : "Codex")}{record.running ? " · 运行中" : ""}</small></button><time>{record.updatedAt ? new Date(record.updatedAt).toLocaleString() : "未知"}</time></div>; })}
+      {!props.loading && !shown.length && <div className="empty">当前条件下没有记录</div>}
+    </div>
+    <div className="actionbar"><div><strong>已选 {selected.size} 条</strong><span>{props.state === "scheduled" ? "已安排会话请在 ChatGPT 官方页面管理" : props.writable ? "操作只影响当前筛选与选择" : "只读状态"}</span></div><div className="selection-actions"><button className={allSelected ? "active" : ""} disabled={!selectable.length || busy} onClick={() => setSelected(new Set(selectable))}>全选当前结果</button><button disabled={!selected.size || busy} onClick={() => setSelected(new Set())}>清空选择</button></div><div className="danger-actions">{busy && props.onCancel && <button className="danger" onClick={() => void props.onCancel?.()}>停止后续操作</button>}{props.state !== "scheduled" && props.state === "active" && <button className="primary" disabled={!props.writable || !selected.size || busy} onClick={() => void batch("archive")}>归档</button>}{props.state === "archived" && <button className="primary" disabled={!props.writable || !selected.size || busy} onClick={() => void batch("restore")}>恢复</button>}{props.state !== "scheduled" && <button className="danger" disabled={!props.writable || !selected.size || busy} onClick={() => void batch("delete")}>永久删除</button>}</div></div>
+  </section>;
 }
 
-function Settings() {
-  const [update, setUpdate] = useState<UpdateState | null>(null);
-  const [updateError, setUpdateError] = useState("");
-
-  useEffect(() => {
-    const unsubscribe = window.cgn.updates.onState(setUpdate);
-    void window.cgn.updates.getState().then(setUpdate).catch((cause) => setUpdateError(cause instanceof Error ? cause.message : String(cause)));
-    return unsubscribe;
-  }, []);
-
-  async function setAutoUpdate(enabled: boolean) {
-    setUpdateError("");
-    try {
-      setUpdate(await window.cgn.updates.setAutoUpdate(enabled));
-    } catch (cause) {
-      setUpdateError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
-  async function checkForUpdate() {
-    setUpdateError("");
-    try {
-      setUpdate(await window.cgn.updates.check());
-    } catch (cause) {
-      setUpdateError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
-  const updateBusy = update?.phase === "checking" || update?.phase === "downloading";
-  return (
-    <section className="settings-page">
-      <p className="eyebrow">CGN Desktop</p><h1>设置与兼容性</h1>
-      <div className="settings-card">
-        <h2>应用更新</h2>
-        <label className="update-toggle">
-          <input type="checkbox" checked={update?.autoUpdate ?? true} disabled={!update} onChange={(event) => void setAutoUpdate(event.target.checked)} />
-          <span>自动检查更新（默认开启）</span>
-        </label>
-        <p className="update-status" aria-live="polite">{update?.message ?? "正在读取更新设置…"}</p>
-        {update?.phase === "downloading" && <progress max="100" value={update.percent ?? 0}>{update.percent ?? 0}%</progress>}
-        {updateError && <p className="update-error">{updateError}</p>}
-        <div className="update-actions">
-          <button className="secondary" disabled={!update || updateBusy || update.phase === "unsupported"} onClick={() => void checkForUpdate()}>手动检查更新</button>
-          {update?.phase === "downloaded" && update.canAutoInstall && <button className="secondary" onClick={() => void window.cgn.updates.install()}>重启并安装</button>}
-          {(update?.phase === "available" && !update.canAutoInstall || update?.phase === "error") && <button className="secondary" onClick={() => void window.cgn.updates.openRelease()}>打开 Release 下载</button>}
-        </div>
-        <p className="update-note">安装版会自动下载更新并在退出时安装；便携版会自动检查，但需要从 GitHub Release 手动下载新版。</p>
-      </div>
-      <div className="settings-card"><h2>ChatGPT</h2><p>登录信息保存在独立的 Electron 会话 <code>persist:cgn-chatgpt</code> 中。扩展运行数据使用该会话的 <code>chrome.storage.local</code>，不会复制浏览器 Cookie。</p></div>
-      <div className="settings-card"><h2>Codex</h2><p>任务通过本机 <code>codex app-server</code> 读取，不直接访问 <code>sessions/*.jsonl</code>、状态数据库或 <code>auth.json</code>。</p></div>
-      <div className="settings-card"><h2>文档</h2><button className="link" onClick={() => void window.cgn.openExternal("https://developers.openai.com/codex/app-server")}>打开 Codex App Server 文档</button></div>
-    </section>
-  );
+function Settings({ version }: { version: string }) {
+  const [update, setUpdate] = useState<UpdateState | null>(null); const [bridge, setBridge] = useState<PairingState | null>(null); const [cache, setCache] = useState<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null } | null>(null); const [codexStatus, setCodexStatus] = useState<{ available: boolean; message: string; command: string } | null>(null);
+  useEffect(() => { void window.conversationManager.updates.getState().then(setUpdate); void window.conversationManager.chatgpt.state().then(setBridge); void window.conversationManager.chatgpt.cacheStats().then(setCache); void window.conversationManager.codex.status().then(setCodexStatus); return window.conversationManager.updates.onState(setUpdate); }, []);
+  return <section className="settings"><p className="eyebrow">Conversation Manager v{version}</p><h1>设置与隐私</h1><div className="settings-grid"><article><h2>浏览器桥接</h2><p>{bridge?.connected ? "已连接" : bridge?.paired ? "已配对，等待浏览器" : "尚未配对"}</p><div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>打开扩展目录</button><button onClick={() => void window.conversationManager.chatgpt.clearPairing().then(setBridge)}>清除配对</button></div></article><article><h2>ChatGPT 缓存</h2><p>{cache ? `${cache.records} 条记录 · ${formatBytes(cache.bytes)}${cache.lastSyncedAt ? ` · ${relativeTime(cache.lastSyncedAt)}同步` : ""}` : "正在读取…"}</p><div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.clearCache().then(setCache)}>清除缓存</button></div></article><article><h2>Codex 可执行文件</h2><p>{codexStatus?.message || "正在检测…"}<br/><small>{codexStatus?.command}</small></p><div className="card-actions"><button onClick={() => void window.conversationManager.codex.selectCommand().then(() => window.conversationManager.codex.status()).then(setCodexStatus)}>选择可执行文件</button></div></article><article><h2>自动更新</h2><p>{update?.message}</p><label className="toggle"><input type="checkbox" checked={update?.autoUpdate ?? true} onChange={(event) => void window.conversationManager.updates.setAutoUpdate(event.target.checked).then(setUpdate)}/>默认自动检查更新</label><div className="card-actions"><button onClick={() => void window.conversationManager.updates.check()}>立即检查</button>{update?.phase === "downloaded" && update.canAutoInstall && <button onClick={() => void window.conversationManager.updates.install()}>重启安装</button>}</div></article><article><h2>隐私边界</h2><p>管理器只保存会话标题、ID、时间和状态。Cookie、访问令牌、正文及 Codex 认证文件不会被读取或复制。</p></article><article><h2>连接方式</h2><p>ChatGPT 复用 Chrome/Edge 登录；Codex 通过本机 App Server 读取任务。两者都不在管理器中重复登录。</p></article></div></section>;
 }
 
+function toChatManaged(record: CachedConversation): ManagedConversation { return { source: "chatgpt", ...record, capabilities: record.state === "scheduled" ? [] : record.state === "archived" ? ["open", "restore", "delete"] : ["open", "archive", "delete"], running: false }; }
+function toCodexManaged(thread: CodexThread, archived: boolean): ManagedConversation { return { source: "codex", id: thread.id, title: thread.name?.trim() || thread.preview?.trim() || "未命名任务", createdAt: thread.createdAt * 1000, updatedAt: thread.updatedAt * 1000, state: archived ? "archived" : "active", projectId: thread.projectId || undefined, cwd: thread.cwd, pinned: false, running: thread.status?.type === "active", current: false, capabilities: thread.status?.type === "active" ? ["open"] : archived ? ["open", "restore", "delete"] : ["open", "archive", "delete"] }; }
+function confirmDelete(ids: string[], records: ManagedConversation[]): boolean { const titles = records.filter((record) => ids.includes(record.id)).slice(0, 6).map((record) => `• ${record.title}`).join("\n"); if (!window.confirm(`将永久删除 ${ids.length} 条记录，此操作无法撤销。\n\n${titles}${ids.length > 6 ? "\n…" : ""}`)) return false; return ids.length <= 20 || window.prompt(`请输入删除数量 ${ids.length} 以继续`) === String(ids.length); }
+function relativeTime(value: number): string { const seconds = Math.max(0, Math.round((Date.now() - value) / 1000)); return seconds < 60 ? "刚刚" : seconds < 3600 ? `${Math.floor(seconds / 60)} 分钟前` : `${Math.floor(seconds / 3600)} 小时前`; }
+function formatBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
+function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

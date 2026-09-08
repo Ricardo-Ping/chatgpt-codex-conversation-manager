@@ -1,6 +1,6 @@
 {
-  "name": "@cgn/codex-app-server-adapter",
-  "version": "0.1.0-preview.3",
+  "name": "@conversation-manager/codex-app-server-adapter",
+  "version": "0.2.0-preview.1",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,6 +10,7 @@
       "default": "./dist/index.js"
     }
   },
+  "files": ["dist/index.js", "dist/index.d.ts"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

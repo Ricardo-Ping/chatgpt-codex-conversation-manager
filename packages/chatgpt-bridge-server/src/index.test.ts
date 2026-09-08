@@ -1,0 +1,72 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ChatGptBridgeServer, ConversationIndexStore } from "./index.js";
+
+const servers: ChatGptBridgeServer[] = [];
+afterEach(async () => { await Promise.all(servers.splice(0).map((server) => server.close())); });
+
+describe("ChatGptBridgeServer", () => {
+  it("pairs once, rejects bad secrets and resolves commands", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
+    const port = 33000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const pairing = server.beginPairing();
+    const response = await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: pairing.code }) });
+    expect(response.status).toBe(200);
+    const { secret } = await response.json() as { secret: string };
+    expect((await readFile(join(dir, "secret"), "utf8")).trim()).toBe(secret);
+    expect((await fetch(`http://127.0.0.1:${port}/v1/commands`)).status).toBe(401);
+    const pending = server.request("status", {});
+    const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    const [command] = await commands.json() as Array<{ requestId: string }>;
+    await fetch(`http://127.0.0.1:${port}/v1/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify({ protocolVersion: 1, requestId: command!.requestId, ok: true, payload: { loggedIn: true } }) });
+    await expect(pending).resolves.toMatchObject({ ok: true, payload: { loggedIn: true } });
+  });
+
+  it("expires pairing after five bad attempts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 34000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start(); server.beginPairing();
+    for (let index = 0; index < 5; index += 1) await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: "bad" }) });
+    expect(server.state().code).toBeNull();
+  });
+
+  it("removes timed-out commands before the browser can execute them", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 35000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const pairing = server.beginPairing();
+    const response = await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: pairing.code }) });
+    const { secret } = await response.json() as { secret: string };
+    await expect(server.request("batch", { action: "delete" }, 10)).rejects.toThrow("timed out");
+    const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    await expect(commands.json()).resolves.toEqual([]);
+  });
+});
+
+describe("ConversationIndexStore", () => {
+  it("moves and deletes only server-confirmed records", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
+    await store.replace("account", "默认账号", "active", [{ id: "one", title: "One", createdAt: 1, updatedAt: 2, state: "active", pinned: false, current: false, automation: false }], true);
+    await store.apply("account", "archive", ["one"]);
+    expect(store.read("account", "active")?.records).toEqual([]);
+    expect(store.read("account", "archived")?.records[0]?.state).toBe("archived");
+    await store.apply("account", "delete", ["one"]);
+    expect(store.read("account", "archived")?.records).toEqual([]);
+  });
+
+  it("does not revive a recently confirmed deletion during full calibration", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
+    const record = { id: "gone", title: "Gone", createdAt: 1, updatedAt: 2, state: "active" as const, pinned: false, current: false, automation: false };
+    await store.replace("account", "默认账号", "active", [record], true); await store.apply("account", "delete", ["gone"]); await store.replace("account", "默认账号", "active", [record], true);
+    expect(store.read("account", "active")?.records).toEqual([]);
+  });
+
+  it("lets newer incremental records replace stale cached values", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
+    const record = { id: "same", title: "Old", createdAt: 1, updatedAt: 2, state: "active" as const, pinned: false, current: false, automation: false };
+    await store.replace("account", "默认账号", "active", [record], true);
+    await store.merge("account", "默认账号", "active", [{ ...record, title: "New", updatedAt: 3 }]);
+    expect(store.read("account", "active")?.records[0]).toMatchObject({ title: "New", updatedAt: 3 });
+  });
+});

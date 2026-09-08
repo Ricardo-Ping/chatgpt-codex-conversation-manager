@@ -1,20 +1,15 @@
 {
-  "name": "@conversation-manager/companion-mcp",
+  "name": "@conversation-manager/chatgpt-bridge-server",
   "version": "0.2.0-preview.1",
   "type": "module",
-  "bin": {
-    "conversation-manager-mcp": "dist/index.js",
-    "cgn-desktop-mcp": "dist/index.js"
-  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist/index.js", "dist/index.d.ts"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --exclude dist/**"
-  },
-  "dependencies": {
-    "@conversation-manager/codex-app-server-adapter": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^22.19.13",

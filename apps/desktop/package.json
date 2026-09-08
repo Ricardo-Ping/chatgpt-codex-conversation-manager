@@ -1,9 +1,9 @@
 {
-  "name": "@cgn/desktop",
-  "version": "0.1.0-preview.3",
+  "name": "@conversation-manager/desktop",
+  "version": "0.2.0-preview.1",
   "private": true,
   "type": "module",
-  "description": "Desktop conversation navigator for ChatGPT and Codex",
+  "description": "Conversation management for ChatGPT and Codex",
   "author": "Ricardo Ping",
   "main": "dist/main/main.js",
   "scripts": {
@@ -15,9 +15,9 @@
     "package:win": "pnpm -w build && electron-builder --win nsis portable"
   },
   "dependencies": {
-    "@cgn/chatgpt-web-adapter": "workspace:*",
-    "@cgn/codex-app-server-adapter": "workspace:*",
-    "@cgn/conversation-domain": "workspace:*",
+    "@conversation-manager/chatgpt-bridge-server": "workspace:*",
+    "@conversation-manager/codex-app-server-adapter": "workspace:*",
+    "@conversation-manager/conversation-domain": "workspace:*",
     "electron-updater": "6.8.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -35,24 +35,29 @@
   },
   "build": {
     "appId": "com.ricardoping.cgn.desktop",
-    "productName": "CGN Desktop",
+    "productName": "Conversation Manager",
     "directories": {
       "output": "../../release"
     },
     "publish": {
       "provider": "github",
       "owner": "Ricardo-Ping",
-      "repo": "chatgpt-codex-conversation-navigator-desktop"
+      "repo": "chatgpt-codex-conversation-manager"
     },
     "files": [
       "dist/**/*",
+      "!dist/**/*.test.*",
       "src/preload.cjs",
-      "package.json"
+      "package.json",
+      "!node_modules/@conversation-manager/*/src/**/*",
+      "!node_modules/@conversation-manager/*/tsconfig.json",
+      "!node_modules/@conversation-manager/*/dist/**/*.test.*"
     ],
     "extraResources": [
       {
-        "from": "../../packages/chatgpt-web-adapter/vendor/extension",
-        "to": "chatgpt-extension"
+        "from": "../../packages/chatgpt-browser-bridge-extension",
+        "to": "chatgpt-browser-bridge-extension",
+        "filter": ["manifest.json", "background.js", "content.js", "bridge-core.js", "popup.html", "popup.css", "popup.js"]
       }
     ],
     "win": {
@@ -62,12 +67,12 @@
       ]
     },
     "nsis": {
-      "artifactName": "CGN-Desktop-${version}-setup-${arch}.${ext}",
+      "artifactName": "Conversation-Manager-${version}-setup-${arch}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
     "portable": {
-      "artifactName": "CGN-Desktop-${version}-portable-${arch}.${ext}"
+      "artifactName": "Conversation-Manager-${version}-portable-${arch}.${ext}"
     }
   }
 }

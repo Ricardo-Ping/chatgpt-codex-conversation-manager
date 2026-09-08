@@ -1,16 +1,17 @@
 {
-  "name": "chatgpt-codex-conversation-navigator-desktop",
-  "version": "0.1.0-preview.3",
+  "name": "chatgpt-codex-conversation-manager",
+  "version": "0.2.0-preview.1",
   "private": true,
-  "description": "Desktop conversation navigator for ChatGPT and Codex",
+  "description": "Private desktop conversation manager for ChatGPT and Codex",
   "packageManager": "pnpm@11.19.0",
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "dev": "pnpm --filter @cgn/desktop dev",
-    "start": "pnpm --filter @cgn/desktop start",
+    "dev": "pnpm --filter @conversation-manager/desktop dev",
+    "start": "pnpm --filter @conversation-manager/desktop start",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm build && pnpm -r --if-present typecheck",
-    "package:win": "pnpm --filter @cgn/desktop package:win"
+    "package:bridge": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-bridge.ps1",
+    "package:win": "pnpm --filter @conversation-manager/desktop package:win && pnpm package:bridge"
   },
   "engines": {
     "node": ">=22.12"

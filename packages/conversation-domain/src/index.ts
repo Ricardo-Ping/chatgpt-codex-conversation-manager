@@ -1,6 +1,6 @@
 export type ConversationSource = "chatgpt" | "codex";
 export type ConversationState = "active" | "archived" | "scheduled";
-export type ConversationCapability = "read" | "archive" | "restore" | "delete" | "fork";
+export type ConversationCapability = "open" | "archive" | "restore" | "delete";
 
 export interface ManagedConversation {
   source: ConversationSource;
@@ -51,6 +51,6 @@ export function filterConversations(records: ManagedConversation[], filter: Conv
 
 export function bulkSelectableIds(records: ManagedConversation[]): string[] {
   return records
-    .filter((record) => !record.pinned && !record.current && !record.running && record.capabilities.length > 0)
+    .filter((record) => !record.pinned && !record.current && !record.running && record.capabilities.some((value) => value === "archive" || value === "restore" || value === "delete"))
     .map((record) => record.id);
 }

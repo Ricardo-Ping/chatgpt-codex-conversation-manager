@@ -1,67 +1,71 @@
-# ChatGPT/Codex 会话导航桌面版
+# Conversation Manager
 
-**简体中文** | [English](README.en.md)
+Conversation Manager 是一个面向 ChatGPT 与 Codex 的本地桌面会话管理器，专注解决历史记录太多时难以查找、筛选和批量整理的问题。
 
-`CGN Desktop` 是一个独立的 Electron 桌面客户端，用于整理和导航 ChatGPT 长对话，并管理本机 Codex 任务。
-
-本项目是浏览器扩展 [ChatGPT Conversation Navigator](https://github.com/Ricardo-Ping/chatgpt-conversation-navigator) 的桌面版本。当前预览版内置上游 `v0.2.3`（`2b10a7d`）运行时，并将其加载到隔离的 ChatGPT 网页视图中；Codex 任务管理使用官方 [Codex App Server](https://developers.openai.com/codex/app-server)。
+它不显示聊天正文，也不替代 ChatGPT 或 Codex。选择会话后会交给官方网页或 Codex 终端打开。
 
 ## 功能
 
-- 在独立且持久化的 Electron 会话中登录 ChatGPT。
-- 扫描长对话，并支持搜索、跳转、收口与恢复。
-- 将关键回复标记为节点，快速创建和管理对话分支。
-- 管理 ChatGPT 未归档、已归档和已安排会话，支持时间筛选、批量归档、恢复及安全删除。
-- 查看和搜索本机 Codex 任务，支持分支、归档、恢复和带二次确认的永久删除。
-- 默认检查 GitHub Releases 更新，也可在设置页关闭自动检查或手动检查。
-- 使用上下文隔离、沙箱渲染、来源校验 IPC 和外部链接限制保护桌面环境。
+- 在 ChatGPT 与 Codex 双标签页中查看会话。
+- 按标题、未归档/已归档/已安排以及 1 天、1 周、1 个月、半年以前筛选。
+- 多选、全选当前结果、归档、恢复和永久删除。
+- 默认保护置顶、当前会话和运行中的 Codex 任务。
+- 缓存最小会话索引，启动时立即显示；支持后台增量同步和手动完整校准。
+- 安装版默认自动检查并安装 GitHub Release 更新；便携版自动检查并提示手动下载。
 
-ChatGPT 会话管理依赖 ChatGPT 网页的内部接口。当接口兼容性验证失败时，应用会停止写操作，不会降级为自动点击网页删除。
+## 无需在管理器中重复登录
 
-## 下载与安装
+### ChatGPT
 
-普通用户不需要安装 Node.js 或 pnpm。请从 [GitHub Releases](https://github.com/Ricardo-Ping/chatgpt-codex-conversation-navigator-desktop/releases) 下载：
+ChatGPT 通过配套 Chrome/Edge 扩展复用浏览器中已有的登录状态：
 
-- `setup-x64.exe`：推荐使用的 Windows 安装版，支持自动下载和安装更新。
-- `portable-x64.exe`：免安装便携版，可以自动检查更新，但需要手动下载新版替换。
+1. 从 [GitHub Releases](https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases) 下载并安装 Conversation Manager。
+2. 在 Chrome/Edge 的扩展管理页启用“开发者模式”，选择“加载已解压的扩展程序”。
+3. 在应用设置中点击“打开扩展目录”，选择该目录。
+4. 在应用中生成六位配对码，并在扩展弹窗输入一次。
+5. 保持一个已登录的 `chatgpt.com` 标签页打开，即可读取和管理会话。
 
-安装版默认在启动 10 秒后检查更新，并每 4 小时再次检查；发现新版后自动下载，可点击“重启并安装”，也会在退出应用时安装。预览版尚未正式签名，Windows SmartScreen 可能显示提醒。
+完全没有 ChatGPT 登录状态时无法读取云端会话。桥接断开后仍可查看缓存，但归档和删除会被禁用。
 
-使用 ChatGPT 功能时，直接在应用内登录。使用 Codex 任务功能时，需要提前安装并登录 Codex CLI。
+### Codex
 
-## 本地开发
+Codex 通过本机 `codex app-server` 读取任务，不要求在 Conversation Manager 中登录，也不读取 `auth.json`、会话 JSONL 或状态数据库。使用前需要安装并能运行 `codex` CLI。
 
-开发环境要求 Node.js 22.12 或更高版本、pnpm 11；Codex 页面还需要 Codex CLI。
-
-```bash
-pnpm install
-pnpm build
-pnpm start
-```
-
-测试与 Windows 打包：
-
-```bash
-pnpm typecheck
-pnpm test
-pnpm package:win
-```
-
-## 项目结构
-
-```text
-apps/desktop/                      Electron 主进程和 React 界面
-packages/conversation-domain/      通用筛选和选择规则
-packages/chatgpt-web-adapter/      ChatGPT 运行时注入
-packages/codex-app-server-adapter/ Codex JSON-RPC 客户端
-companion-plugin/                   Codex 伴侣插件和 MCP 服务
-docs/                               架构与实施计划
-```
+如果 `codex` 不在系统 PATH 中，可在“设置 → Codex 可执行文件”中手动选择本机的 `codex.exe`、`codex.cmd` 或 `codex.bat`。
 
 ## 隐私与安全
 
-应用不会持久化 ChatGPT 访问令牌、复制浏览器 Cookie、读取 Codex `auth.json` 或上传会话内容。ChatGPT Cookie 只保存在 Electron 的 `persist:cgn-chatgpt` 独立会话中；Codex 登录状态由本机 Codex CLI 管理。
+- 桥接服务只监听 `127.0.0.1`。
+- ChatGPT Cookie、访问令牌和原始账号 ID不会离开浏览器扩展。
+- 本地只保存会话 ID、标题、时间、状态和必要标记，不保存正文。
+- 永久删除需要预览和二次确认；只有服务端确认成功后才更新缓存。
+- ChatGPT 会话管理依赖网页内部接口。接口变化时应用会停止写操作，不会用模拟点击降级删除。
 
-## 当前状态
+## 本地开发
 
-`v0.1.0-preview.3` 仍是技术预览版。ChatGPT OAuth 兼容性、macOS 签名与公证、伴侣插件安装流程以及真实账号破坏性操作仍需要在稳定版前继续验证。
+需要 Node.js 22.12+ 与 pnpm 11：
+
+```powershell
+pnpm install
+pnpm test
+pnpm typecheck
+pnpm dev
+```
+
+构建 Windows 安装版和便携版：
+
+```powershell
+pnpm package:win
+```
+
+详细实施与恢复记录见 [docs/conversation-manager-implementation-plan.md](docs/conversation-manager-implementation-plan.md)。英文说明见 [README.en.md](README.en.md)。
+
+## 当前限制
+
+- `v0.2.0-preview.1` 首先支持 Windows x64、Chrome 和 Edge。
+- 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
+- macOS、Firefox 和官方 ChatGPT 桌面应用本地会话接口暂不支持。
+
+## License
+
+MIT
