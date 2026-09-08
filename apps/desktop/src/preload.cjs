@@ -18,7 +18,8 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     runBatch: (accountKey, action, ids, confirmationToken) => ipcRenderer.invoke("chatgpt:batch", { accountKey, action, ids, confirmationToken }),
     cancel: () => ipcRenderer.invoke("chatgpt:cancel"),
     cacheStats: () => ipcRenderer.invoke("chatgpt:cache-stats"),
-    clearCache: () => ipcRenderer.invoke("chatgpt:clear-cache")
+      clearCache: () => ipcRenderer.invoke("chatgpt:clear-cache"),
+      exportSessions: (payload) => ipcRenderer.invoke("chatgpt:export", payload)
   }),
   codex: Object.freeze({
     status: () => ipcRenderer.invoke("codex:status"),
@@ -26,7 +27,8 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     list: (params) => ipcRenderer.invoke("codex:list", params),
     open: (threadId) => ipcRenderer.invoke("codex:open", threadId),
     previewDelete: (ids) => ipcRenderer.invoke("codex:preview-delete", ids),
-    runBatch: (action, ids, confirmationToken) => ipcRenderer.invoke("codex:batch", { action, ids, confirmationToken })
+      runBatch: (action, ids, confirmationToken) => ipcRenderer.invoke("codex:batch", { action, ids, confirmationToken }),
+      exportSessions: (payload) => ipcRenderer.invoke("codex:export", payload)
   }),
   logs: Object.freeze({
     read: () => ipcRenderer.invoke("log:read"),
@@ -37,6 +39,9 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
   theme: Object.freeze({
     get: () => ipcRenderer.invoke("theme:get"),
     set: (value) => ipcRenderer.invoke("theme:set", value)
+  }),
+  dialog: Object.freeze({
+    pickDirectory: () => ipcRenderer.invoke("dialog:pick-directory")
   }),
   updates: Object.freeze({
     getState: () => ipcRenderer.invoke("update:get-state"), setAutoUpdate: (enabled) => ipcRenderer.invoke("update:set-auto", enabled), check: () => ipcRenderer.invoke("update:check"), install: () => ipcRenderer.invoke("update:install"), openRelease: () => ipcRenderer.invoke("update:open-release"),

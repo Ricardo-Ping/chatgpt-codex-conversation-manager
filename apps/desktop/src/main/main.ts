@@ -10,6 +10,7 @@ import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { discoverCodexCommands } from "./codex-discovery.js";
 import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
+import { chatgptTranscriptMarkdown, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, safeFileName } from "./export.js";
 
 const { autoUpdater } = electronUpdater;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -120,6 +121,68 @@ ipcMain.handle("chatgpt:batch", async (event, value) => {
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
+ipcMain.handle("dialog:pick-directory", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const result = await dialog.showOpenDialog(mainWindow, { title: "选择保存位置", properties: ["openDirectory", "createDirectory"] }); return { directory: result.canceled || !result.filePaths[0] ? null : result.filePaths[0] }; });
+ipcMain.handle("chatgpt:export", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const accountKey = requireAccount(input.accountKey);
+  const directory = typeof input.directory === "string" && input.directory ? input.directory : null;
+  if (!directory) throw new Error("未选择保存目录");
+  const rawItems = Array.isArray(input.items) ? input.items : [];
+  const items = rawItems.map((item) => { const row = item && typeof item === "object" ? item as Record<string, unknown> : {}; return { id: requireId(row.id), title: typeof row.title === "string" ? row.title.slice(0, 120) : "" }; });
+  if (!items.length) throw new Error("未选择要保存的会话");
+  await mkdir(directory, { recursive: true });
+  let saved = 0; const failed: Array<{ id: string; message: string }> = [];
+  for (const item of items) {
+    try {
+      const result = await bridge.request("read", { accountKey, id: item.id }, 120_000);
+      if (!result.ok) throw new Error(result.error?.message || "读取会话失败");
+      const payload = result.payload as { title?: unknown; messages?: unknown };
+      const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
+      const messages = rawMessages.map((message) => { const row = message && typeof message === "object" ? message as Record<string, unknown> : {}; return { role: typeof row.role === "string" ? row.role : "other", at: typeof row.at === "number" ? row.at : null, text: typeof row.text === "string" ? row.text : "" }; });
+      const transcript = { id: item.id, title: typeof payload.title === "string" ? payload.title.slice(0, 200) : item.title, messages };
+      const markdown = chatgptTranscriptMarkdown(transcript, Date.now(), "ChatGPT");
+      await writeFile(join(directory, safeFileName(transcript.title || item.title, item.id)), markdown, "utf8");
+      saved += 1;
+    } catch (error) { failed.push({ id: item.id, message: error instanceof Error ? error.message : String(error) }); }
+  }
+  logInfo(`chatgpt export: saved ${saved}, failed ${failed.length}`);
+  return { saved, failed, directory };
+});
+ipcMain.handle("codex:export", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const directory = typeof input.directory === "string" && input.directory ? input.directory : null;
+  if (!directory) throw new Error("未选择保存目录");
+  const rawItems = Array.isArray(input.items) ? input.items : [];
+  const items = rawItems.map((item) => { const row = item && typeof item === "object" ? item as Record<string, unknown> : {}; return { id: requireId(row.id), title: typeof row.title === "string" ? row.title.slice(0, 120) : "", preview: typeof row.preview === "string" ? row.preview.slice(0, 500) : "", cwd: typeof row.cwd === "string" ? row.cwd : null }; });
+  if (!items.length) throw new Error("未选择要保存的任务");
+  await mkdir(directory, { recursive: true });
+  let saved = 0; const failed: Array<{ id: string; message: string }> = [];
+  for (const item of items) {
+    try {
+      const threadMeta = threadLike(item);
+      let markdown: string;
+      try {
+        const payload = await codex.readThread(item.id);
+        const turns = codexTurnsFromPayload(payload);
+        const thread = threadPayload(payload, item);
+        markdown = codexTranscriptMarkdown(thread, turns, Date.now());
+      } catch (readError) {
+        markdown = codexMetadataMarkdown(threadMeta, readError instanceof Error ? readError.message : String(readError), Date.now());
+      }
+      await writeFile(join(directory, safeFileName(threadMeta.name?.trim() || item.title, item.id)), markdown, "utf8");
+      saved += 1;
+    } catch (error) { failed.push({ id: item.id, message: error instanceof Error ? error.message : String(error) }); }
+  }
+  logInfo(`codex export: saved ${saved}, failed ${failed.length}`);
+  return { saved, failed, directory };
+});
+function threadPayload(payload: unknown, item: { id: string; title: string; preview: string; cwd: string | null }): { id: string; name?: string; preview?: string; cwd?: string | null } {
+  const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const thread = root.thread && typeof root.thread === "object" ? root.thread as Record<string, unknown> : root;
+  const text = (v: unknown) => typeof v === "string" ? v : undefined;
+  return { id: item.id, name: text(thread.name) ?? (item.title || undefined), preview: text(thread.preview) ?? item.preview, cwd: text(thread.cwd) ?? item.cwd ?? null };
+}
+function threadLike(item: { id: string; title: string; preview: string; cwd: string | null }): { id: string; name: string | null; preview: string | null; cwd: string | null } { return { id: item.id, name: item.title || null, preview: item.preview || null, cwd: item.cwd }; }
 
 ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? "已连接本机 Codex App Server" : "已自动连接 ChatGPT/Codex 桌面客户端内置 App Server") : "未找到 ChatGPT/Codex 桌面客户端或可用的 Codex App Server", command: codexCommand }; });
 ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const result = await dialog.showOpenDialog(mainWindow, { title: "选择 Codex 可执行文件", properties: ["openFile"], filters: [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }] }); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });

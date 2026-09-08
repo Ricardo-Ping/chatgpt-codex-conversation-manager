@@ -136,6 +136,9 @@ button { cursor: pointer; }
 .selection-actions, .danger-actions, .primary-actions { display: flex; gap: 7px; }
 .selection-actions button { border-color: var(--border-strong); background: var(--surface-solid); color: var(--text-sub); }
 .primary-actions { margin-left: auto; }
+.primary-actions button { border: 0; border-radius: 10px; padding: 10px 17px; font-weight: 700; }
+.primary-actions .secondary { background: var(--surface-solid); color: var(--brand-text); border: 1px solid var(--chip-active-border); }
+.primary-actions .secondary:hover { border-color: var(--brand-glow); }
 .danger-actions { border-left: 1px solid var(--border); padding-left: 14px; }
 .primary, .danger { border: 0; border-radius: 10px; padding: 10px 17px; color: white; font-weight: 700; }
 .primary { background: linear-gradient(135deg, var(--brand), var(--brand-3)); }

@@ -132,6 +132,26 @@
       }
       return dedupe(records);
     }
+    async readConversation(accountId, id, signal) {
+      const data = await this.request(`/backend-api/conversation/${encodeURIComponent(id)}`, accountId, { signal });
+      if (!data || typeof data !== "object" || !data.mapping || typeof data.mapping !== "object") throw new BridgeError("INCOMPATIBLE_API", "会话内容接口结构已变化");
+      const messages = [];
+      const root = Object.keys(data.mapping).find((key) => data.mapping[key]?.parent === null) || Object.keys(data.mapping)[0];
+      const visit = (nodeId, depth) => {
+        if (!nodeId || depth > 1000) return;
+        const node = data.mapping[nodeId]; if (!node) return;
+        const message = node.message;
+        if (message && message.content && !message.hidden) {
+          const role = message.author?.role || "system";
+          const parts = Array.isArray(message.content.parts) ? message.content.parts : [];
+          const text = parts.filter((part) => typeof part === "string").join("\n").trim();
+          if (text && role !== "system") messages.push({ role, at: typeof message.create_time === "number" ? message.create_time * 1000 : null, text });
+        }
+        (node.children || []).forEach((child) => visit(child, depth + 1));
+      };
+      visit(root, 0);
+      return { id, title: typeof data.title === "string" ? data.title : "", messages };
+    }
     async batch(payload) {
       const account = await this.resolveAccount(payload.accountKey); const action = payload.action; const ids = [...new Set(payload.ids || [])];
       if (!["archive", "restore", "delete"].includes(action) || !ids.length || ids.length > 500) throw new BridgeError("INCOMPATIBLE_API", "无效批量操作");

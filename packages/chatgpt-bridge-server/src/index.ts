@@ -6,9 +6,9 @@ import { dirname } from "node:path";
 export const BRIDGE_HOST = "127.0.0.1";
 export const BRIDGE_PORT = 32147;
 export const PROTOCOL_VERSION = 1;
-const MAX_BODY = 1_000_000;
+const MAX_BODY = 8_000_000;
 
-export type BridgeCommandType = "status" | "accounts" | "list" | "batch" | "cancel";
+export type BridgeCommandType = "status" | "accounts" | "list" | "batch" | "cancel" | "read";
 export interface BridgeCommand { protocolVersion: 1; requestId: string; type: BridgeCommandType; createdAt: number; expiresAt: number; payload: unknown }
 export interface BridgeError { code: string; message: string; retryable: boolean }
 export interface BridgeResult { protocolVersion: 1; requestId: string; ok: boolean; payload?: unknown; error?: BridgeError }

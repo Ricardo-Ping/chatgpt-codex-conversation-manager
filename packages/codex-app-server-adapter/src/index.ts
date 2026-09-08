@@ -94,6 +94,11 @@ export class CodexAppServer {
     await this.request("thread/archive", { threadId });
   }
 
+  async readThread(threadId: string): Promise<unknown> {
+    const result = await this.request<unknown>("thread/read", { threadId });
+    return result;
+  }
+
   async unarchive(threadId: string): Promise<{ thread: CodexThread }> {
     return this.request("thread/unarchive", { threadId });
   }
