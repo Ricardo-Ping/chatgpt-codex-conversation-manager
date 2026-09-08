@@ -6,6 +6,7 @@
   "use strict";
   const ACTIVE_TASKS = new Set(["active", "scheduled", "pending", "enabled"]);
   const NON_SCHEDULED_TASK = /pro[_ -]?mode|deep[_ -]?research|image[_ -]?(?:generation|gen)|imagegen|dall[ -]?e/i;
+  const PAGE_SIZE = 50; // ChatGPT 后端限制分页大小上限为 50
 
   class BridgeError extends Error {
     constructor(code, message, retryable = false) { super(message); this.code = code; this.retryable = retryable; }
@@ -83,7 +84,7 @@
     async loadTasks(accountId, signal) {
       const records = []; let offset = 0, cursor = null, previousSignature = null;
       for (;;) {
-        const query = new URLSearchParams({ limit: "100" }); if (cursor !== null) query.set("cursor", String(cursor)); else if (offset) query.set("offset", String(offset));
+        const query = new URLSearchParams({ limit: String(PAGE_SIZE) }); if (cursor !== null) query.set("cursor", String(cursor)); else if (offset) query.set("offset", String(offset));
         const response = await this.request(`/backend-api/tasks?${query}`, accountId, { signal });
         const page = taskRows(response); records.push(...page);
         const raw = Array.isArray(response?.tasks) ? response.tasks : Array.isArray(response?.items) ? response.items : Array.isArray(response) ? response : null;
@@ -96,21 +97,21 @@
     async loadConversations(accountId, archived, signal, checkpoint) {
       const records = []; let offset = 0;
       for (;;) {
-        const response = await this.request(`/backend-api/conversations?offset=${offset}&limit=100&order=updated&is_archived=${archived}`, accountId, { signal });
+        const response = await this.request(`/backend-api/conversations?offset=${offset}&limit=${PAGE_SIZE}&order=updated&is_archived=${archived}`, accountId, { signal });
         const rows = Array.isArray(response?.items) ? response.items : null;
         if (!rows) throw new BridgeError("INCOMPATIBLE_API", "会话接口结构已变化");
         const page = rows.map((row) => normalize(row, archived ? "archived" : "active")).filter(Boolean); records.push(...page);
         if (checkpoint && page.length && page.every((row) => (row.updatedAt || 0) <= checkpoint)) break;
-        if (rows.length < 100) break; offset += rows.length;
+        if (rows.length < PAGE_SIZE) break; offset += rows.length;
       }
       if (!archived) {
         const discovered = new Set(); const cachedProjects = this.projects.get(accountId);
         if (checkpoint && cachedProjects && Date.now() - cachedProjects.at < 120_000) for (const id of cachedProjects.ids) discovered.add(id);
-        else { let sidebarCursor = null; for (;;) { const query = new URLSearchParams({ limit: "100", owned_only: "true", conversations_per_gizmo: "0" }); if (sidebarCursor !== null) query.set("cursor", String(sidebarCursor)); const sidebar = await this.request(`/backend-api/gizmos/snorlax/sidebar?${query}`, accountId, { signal }); for (const id of projectIds(sidebar)) discovered.add(id); const next = sidebar?.cursor ?? sidebar?.next_cursor ?? sidebar?.nextCursor; if (next === undefined || next === null || String(next) === String(sidebarCursor)) break; sidebarCursor = next; } this.projects.set(accountId, { ids: [...discovered], at: Date.now() }); }
+        else { let sidebarCursor = null; for (;;) { const query = new URLSearchParams({ limit: String(PAGE_SIZE), owned_only: "true", conversations_per_gizmo: "0" }); if (sidebarCursor !== null) query.set("cursor", String(sidebarCursor)); const sidebar = await this.request(`/backend-api/gizmos/snorlax/sidebar?${query}`, accountId, { signal }); for (const id of projectIds(sidebar)) discovered.add(id); const next = sidebar?.cursor ?? sidebar?.next_cursor ?? sidebar?.nextCursor; if (next === undefined || next === null || String(next) === String(sidebarCursor)) break; sidebarCursor = next; } this.projects.set(accountId, { ids: [...discovered], at: Date.now() }); }
         for (const projectId of discovered) {
           let projectCursor = 0;
           for (;;) {
-            const query = new URLSearchParams({ cursor: String(projectCursor), limit: "100", owned_only: "true" });
+            const query = new URLSearchParams({ cursor: String(projectCursor), limit: String(PAGE_SIZE), owned_only: "true" });
             const payload = await this.request(`/backend-api/gizmos/${encodeURIComponent(projectId)}/conversations?${query}`, accountId, { signal });
             const rows = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.conversations) ? payload.conversations : null;
             if (!rows) throw new BridgeError("INCOMPATIBLE_API", "项目会话接口结构已变化");
