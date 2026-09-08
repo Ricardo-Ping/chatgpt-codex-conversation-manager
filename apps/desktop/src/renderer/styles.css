@@ -160,6 +160,9 @@ button { cursor: pointer; }
 .settings .pair-feedback { margin: 4px 0 0; color: var(--brand-text); font-size: 12.5px; line-height: 1.6; }
 .settings .pair-code { margin: 12px 0 2px; width: auto; max-width: 240px; justify-items: center; padding: 10px; }
 .toggle { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.settings .log-card { grid-column: 1 / -1; }
+.settings .log-card .card-actions { justify-content: flex-start; }
+.log-view { margin: 12px 0 2px; padding: 12px 14px; background: var(--dialog-item-bg); border: 1px solid var(--dialog-item-border); border-radius: 12px; height: 260px; overflow: auto; font-family: Consolas, "Courier New", monospace; font-size: 11.5px; line-height: 1.55; color: var(--dialog-item-text); white-space: pre-wrap; word-break: break-all; }
 
 /* ---- 删除确认对话框 ---- */
 .dialog-overlay { position: fixed; inset: 0; background: var(--overlay); display: grid; place-items: center; z-index: 100; backdrop-filter: blur(3px); padding: 24px; }

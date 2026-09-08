@@ -9,7 +9,7 @@ import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode, type 
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { discoverCodexCommands } from "./codex-discovery.js";
 import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
-import { initLogger, logInfo, logWarn } from "./logger.js";
+import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
 
 const { autoUpdater } = electronUpdater;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,9 +38,12 @@ function requireAccount(value: unknown): string { if (typeof value !== "string" 
 function requireIds(value: unknown): string[] { if (!Array.isArray(value) || value.length < 1 || value.length > 500) throw new Error("Invalid selection"); return [...new Set(value.map(requireId))].sort(); }
 function requireState(value: unknown): CachedConversation["state"] { if (value !== "active" && value !== "archived" && value !== "scheduled") throw new Error("Invalid state"); return value; }
 
+let logUnsubscribe: (() => void) | null = null;
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({ width: 1280, height: 820, minWidth: 760, minHeight: 560, title: "Conversation Manager", autoHideMenuBar: true, backgroundColor: nativeTheme.shouldUseDarkColors ? "#0c181b" : "#f4f8f7", webPreferences: { preload: join(__dirname, "..", "..", "src", "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true } });
   await mainWindow.loadFile(join(__dirname, "..", "renderer", "index.html")); mainWindow.on("closed", () => { mainWindow = null; });
+  if (logUnsubscribe) logUnsubscribe();
+  logUnsubscribe = onLogLine((line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("log:appended", line); });
 }
 
 function publishUpdateState(patch: Partial<typeof updateState>): void { updateState = { ...updateState, ...patch }; mainWindow?.webContents.send("update:state", updateState); }
@@ -147,6 +150,15 @@ type ThemePreference = "system" | "light" | "dark";
 async function loadThemePreference(): Promise<ThemePreference> { try { const raw = JSON.parse(await readFile(join(app.getPath("userData"), "theme-preferences.json"), "utf8")) as { theme?: unknown }; return raw.theme === "light" || raw.theme === "dark" || raw.theme === "system" ? raw.theme : "system"; } catch { return "system"; } }
 ipcMain.handle("theme:get", (event) => { requireRenderer(event); return nativeTheme.themeSource; });
 ipcMain.handle("theme:set", async (event, value) => { requireRenderer(event); if (value !== "system" && value !== "light" && value !== "dark") throw new Error("Invalid theme preference"); nativeTheme.themeSource = value; await mkdir(app.getPath("userData"), { recursive: true }); await writeFile(join(app.getPath("userData"), "theme-preferences.json"), `${JSON.stringify({ theme: value }, null, 2)}\n`, "utf8"); return nativeTheme.themeSource; });
+ipcMain.handle("log:read", async (event) => { requireRenderer(event); return readLogs(); });
+ipcMain.handle("log:clear", async (event) => { requireRenderer(event); await clearLogs(); return true; });
+ipcMain.handle("log:save", async (event) => {
+  requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable");
+  const result = await dialog.showSaveDialog(mainWindow, { title: "保存运行日志", defaultPath: `conversation-manager-logs-${new Date().toISOString().slice(0, 10)}.log`, filters: [{ name: "日志", extensions: ["log", "txt"] }] });
+  if (result.canceled || !result.filePath) return { saved: false };
+  await saveLogsTo(result.filePath);
+  return { saved: true, path: result.filePath };
+});
 
 function validateConfirmation(source: "chatgpt" | "codex", ids: string[], value: unknown) { const token = typeof value === "string" ? value : ""; const confirmation = confirmations.get(token); confirmations.delete(token); if (!confirmation || confirmation.source !== source || confirmation.expiresAt < Date.now() || JSON.stringify(confirmation.ids) !== JSON.stringify(ids)) throw new Error("删除确认已过期，请重新预览"); return confirmation; }
 function rememberConfirmation(source: "chatgpt" | "codex", ids: string[], fingerprint?: string): string { const now = Date.now(); for (const [token, entry] of confirmations) if (entry.expiresAt < now) confirmations.delete(token); const token = randomUUID(); confirmations.set(token, { source, ids, ...(fingerprint ? { fingerprint } : {}), expiresAt: now + 120_000 }); return token; }

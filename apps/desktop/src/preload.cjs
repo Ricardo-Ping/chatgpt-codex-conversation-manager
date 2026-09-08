@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     previewDelete: (ids) => ipcRenderer.invoke("codex:preview-delete", ids),
     runBatch: (action, ids, confirmationToken) => ipcRenderer.invoke("codex:batch", { action, ids, confirmationToken })
   }),
+  logs: Object.freeze({
+    read: () => ipcRenderer.invoke("log:read"),
+    clear: () => ipcRenderer.invoke("log:clear"),
+    save: () => ipcRenderer.invoke("log:save"),
+    onLine: (callback) => { if (typeof callback !== "function") return () => {}; const listener = (_event, line) => callback(line); ipcRenderer.on("log:appended", listener); return () => ipcRenderer.removeListener("log:appended", listener); }
+  }),
   theme: Object.freeze({
     get: () => ipcRenderer.invoke("theme:get"),
     set: (value) => ipcRenderer.invoke("theme:set", value)

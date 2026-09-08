@@ -30,6 +30,7 @@ declare global {
       previewDelete(ids: string[]): Promise<{ tasks: Array<{ id: string; title: string; derived: boolean }>; missing: string[]; running: string[]; confirmationToken: string | null }>;
       runBatch(action: "archive" | "unarchive" | "delete", ids: string[], confirmationToken?: string): Promise<BatchResult>;
     };
+    logs: { read(): Promise<string>; clear(): Promise<boolean>; save(): Promise<{ saved: boolean; path?: string }>; onLine(callback: (line: string) => void): () => void };
     theme: { get(): Promise<ThemePreference>; set(value: ThemePreference): Promise<ThemePreference> };
     updates: { getState(): Promise<UpdateState>; setAutoUpdate(enabled: boolean): Promise<UpdateState>; check(): Promise<UpdateState>; install(): Promise<void>; openRelease(): Promise<void>; onState(callback: (state: UpdateState) => void): () => void };
   }; }
