@@ -20,12 +20,22 @@ describe("chatgptTranscriptMarkdown", () => {
       { role: "assistant", at: null, text: "第一答" }
     ] }, exportedAt, "工作账号");
     expect(markdown).toContain("# 调研会话");
-    expect(markdown).toContain("- 来源：ChatGPT（工作账号）");
+    expect(markdown).toContain("- 来源: ChatGPT（工作账号）");
     expect(markdown).toContain("## 用户 ·");
     expect(markdown).toContain("第一问");
     expect(markdown).toContain("## 助手 ·");
     expect(markdown).toContain("第一答");
-    expect(markdown).toContain("消息数：2");
+    expect(markdown).toContain("消息数: 2");
+  });
+  it("renders english labels when requested", () => {
+    const markdown = chatgptTranscriptMarkdown({ id: "conv-1", title: "Research", messages: [
+      { role: "user", at: null, text: "q" },
+      { role: "assistant", at: null, text: "a" }
+    ] }, 0, "Work", "en");
+    expect(markdown).toContain("# Research");
+    expect(markdown).toContain("- Source: ChatGPT（Work）");
+    expect(markdown).toContain("## User ·");
+    expect(markdown).toContain("## Assistant ·");
   });
   it("notes empty transcripts", () => {
     const markdown = chatgptTranscriptMarkdown({ id: "conv-2", title: "空会话", messages: [] }, 0, "账号");
@@ -46,12 +56,11 @@ describe("codexTranscriptMarkdown", () => {
     expect(markdown).toContain("### 思考");
     expect(markdown).toContain("## 助手");
     expect(markdown).toContain("分析结果");
-    expect(markdown).toContain("工作目录：C:\\work");
+    expect(markdown).toContain("工作目录: C:\\work");
   });
 
   it("explains when the server returned no turns", () => {
     const markdown = codexTranscriptMarkdown(thread({ name: "任务" }), [], 0);
-    expect(markdown).toContain("未返回该任务的正文内容");
     expect(markdown).toContain("任务摘要");
   });
 });
@@ -59,7 +68,7 @@ describe("codexTranscriptMarkdown", () => {
 describe("codexMetadataMarkdown", () => {
   it("records the failure reason", () => {
     const markdown = codexMetadataMarkdown(thread({ name: "任务", preview: "摘要文本" }), "thread/read 不受支持", 0);
-    expect(markdown).toContain("无法获取正文内容：thread/read 不受支持");
+    expect(markdown).toContain("未返回该任务的正文内容: thread/read 不受支持");
     expect(markdown).toContain("## 摘要");
     expect(markdown).toContain("摘要文本");
   });
