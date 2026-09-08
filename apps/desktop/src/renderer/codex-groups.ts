@@ -23,5 +23,8 @@ export function groupCodexConversations(records: ManagedConversation[]): CodexCo
     const group = groups.get(key) ?? { key, name, path: project || realDir ? path : null, records: [] };
     group.records.push(record); groups.set(key, group);
   }
-  return [...groups.values()];
+  const ordered = [...groups.values()];
+  const unassigned = ordered.findIndex((group) => group.key === "__unassigned__");
+  if (unassigned > 0) ordered.unshift(...ordered.splice(unassigned, 1));
+  return ordered;
 }

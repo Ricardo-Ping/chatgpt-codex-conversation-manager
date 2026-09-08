@@ -82,8 +82,8 @@ function ChatGptWorkspace({ bridge }: { bridge: PairingState }) {
 }
 
 function ConnectionCard() {
-  return <section className="connection-card"><div className="connection-art">↔</div><p className="eyebrow">安全浏览器桥接</p><h1>复用浏览器中的 ChatGPT 登录</h1><p>无需在管理器中再次登录。安装配套扩展后，点击浏览器工具栏中的扩展，再点“一键连接桌面管理器”即可。Cookie 和访问令牌始终留在浏览器。</p>
-    <div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>打开扩展目录</button><button onClick={() => void window.conversationManager.chatgpt.openChatGpt()}>打开 ChatGPT</button></div>
+  return <section className="connection-card"><div className="connection-art">↔</div><p className="eyebrow">安全浏览器桥接</p><h1>复用浏览器中的 ChatGPT 登录</h1><p>无需在管理器中再次登录。在 Chrome/Edge 中加载配套扩展后即会自动完成配对，无需其他操作；也可以点击浏览器工具栏中的扩展，再点“一键连接桌面管理器”。Cookie 和访问令牌始终留在浏览器。</p>
+    <div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.openChatGpt()}>打开 ChatGPT</button></div>
   </section>;
 }
 
@@ -132,7 +132,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
     return <div className={`row ${selected.has(record.id) ? "selected" : ""} ${focusId === record.id ? "focused" : ""}`} key={record.id}>
       <label className="check"><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => toggleOne(record.id)}/><span></span></label>
       <button type="button" className="row-main" onFocus={() => setFocusId(record.id)} onClick={() => void props.onOpen(record)} onKeyDown={(event) => {
-        if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const rows = listRef.current ? Array.from(listRef.current.querySelectorAll<HTMLButtonElement>(".row-main")) : []; const index = rows.indexOf(event.currentTarget); rows[index + (event.key === "ArrowDown" ? 1 : -1)]?.focus(); }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const rows = listRef.current ? Array.from(listRef.current.querySelectorAll<HTMLButtonElement>(".row-main")) : []; const index = rows.indexOf(event.currentTarget); const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)]; if (next) { next.focus({ preventScroll: true }); next.closest(".row")?.scrollIntoView({ block: "nearest" }); } }
         else if (event.key === " " && selectableRow && !busy) { event.preventDefault(); toggleOne(record.id); }
       }}>
         <strong>{record.running ? <span className="running-dot" aria-label="运行中" /> : null}{record.title}</strong>

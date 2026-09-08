@@ -28,7 +28,9 @@ async function startPolling() {
   let delay = 1500;
   try {
     for (;;) {
-      const { bridgeSecret } = await chrome.storage.local.get("bridgeSecret"); if (!bridgeSecret) break;
+      let { bridgeSecret } = await chrome.storage.local.get("bridgeSecret");
+      if (!bridgeSecret) { try { await pair(); ({ bridgeSecret } = await chrome.storage.local.get("bridgeSecret")); } catch {} }
+      if (!bridgeSecret) break;
       try {
         const response = await fetch(`${BASE}/commands`, { headers: { Authorization: `Bearer ${bridgeSecret}` } });
         if (response.status === 401) { await chrome.storage.local.remove("bridgeSecret"); break; }

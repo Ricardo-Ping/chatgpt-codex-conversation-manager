@@ -17,6 +17,12 @@ describe("groupCodexConversations", () => {
     expect(groups.map((group) => [group.name, group.records.map((item) => item.id)])).toEqual([["非项目任务", ["s1", "s2"]], ["chatgpt对话插件", ["real"]]]);
   });
 
+  it("pins the non-project group above all project groups", () => {
+    const scratch = "C:\\Users\\me\\Documents\\Codex\\2026-09-03\\qin";
+    const groups = groupCodexConversations([row("a", "X:\\work\\alpha"), row("s", scratch), row("b", "X:\\work\\beta")]);
+    expect(groups.map((group) => group.name)).toEqual(["非项目任务", "alpha", "beta"]);
+  });
+
   it("prefers projectId over cwd when grouping", () => {
     const groups = groupCodexConversations([row("p1", "X:\\work\\alpha", "proj-1"), row("p2", "X:\\other\\beta", "proj-1")]);
     expect(groups).toHaveLength(1);
