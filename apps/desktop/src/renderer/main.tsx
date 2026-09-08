@@ -133,12 +133,13 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   const renderRow = (record: ManagedConversation) => {
     const selectableRow = props.state !== "scheduled" && !record.running && record.capabilities.some((value) => value === "archive" || value === "restore" || value === "delete");
     const sub = props.source === "codex" ? `${record.preview ? `${record.preview} · ` : ""}${isProjectTask(record) ? "项目任务" : "非项目任务"}` : record.projectId ? "项目会话" : record.pinned ? "置顶会话" : "ChatGPT";
-    return <div className={`row ${selected.has(record.id) ? "selected" : ""} ${focusId === record.id ? "focused" : ""}`} key={record.id}>
-      <label className="check"><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => toggleOne(record.id)}/><span></span></label>
-      <button type="button" className="row-main" onFocus={() => setFocusId(record.id)} onClick={() => void props.onOpen(record)} onKeyDown={(event) => {
+    return <div className={`row ${selected.has(record.id) ? "selected" : ""} ${focusId === record.id ? "focused" : ""}`} key={record.id} onClick={() => { if (selectableRow && !busy) toggleOne(record.id); }} onDoubleClick={() => void props.onOpen(record)}>
+      <label className="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => toggleOne(record.id)}/><span></span></label>
+      <button type="button" className="row-main" onFocus={() => setFocusId(record.id)} onKeyDown={(event) => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const rows = listRef.current ? Array.from(listRef.current.querySelectorAll<HTMLButtonElement>(".row-main")) : []; const index = rows.indexOf(event.currentTarget); const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)]; if (next) { next.focus({ preventScroll: true }); next.closest(".row")?.scrollIntoView({ block: "nearest" }); } }
         else if (event.key === " " && selectableRow && !busy) { event.preventDefault(); toggleOne(record.id); }
-      }}>
+        else if (event.key === "Enter") { event.preventDefault(); void props.onOpen(record); }
+      }} title="单击选中 · 双击打开">
         <strong>{record.running ? <span className="running-dot" aria-label="运行中" /> : null}{record.title}</strong>
         <small>{sub}</small>
       </button>
@@ -148,7 +149,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   return <section className="workspace">
     <aside className="state-rail" aria-label="会话状态">
       {states.map((value) => <button type="button" key={value} className={props.state === value ? "active" : ""} onClick={() => props.onState(value)}><span>{stateLabels[value]}</span>{typeof props.counts?.[value] === "number" && <span className="count">{props.counts?.[value]}</span>}</button>)}
-      <p className="rail-note">↑↓ 移动 · 空格 选中<br/>Enter 打开 · Del 快捷操作<br/>/ 聚焦搜索</p>
+      <p className="rail-note">单击 选中 · 双击 打开<br/>↑↓ 移动 · Del 快捷操作<br/>/ 聚焦搜索 · Ctrl+A 全选</p>
     </aside>
     <div className="workspace-main">
       <div className="workspace-title"><div><p className="eyebrow">{props.source === "chatgpt" ? "浏览器会话" : "本机任务"}</p><h1>{props.title}</h1><p>{props.subtitle}</p></div><div className="title-actions">{props.accounts && props.accounts.length > 1 && <select value={props.accountKey} onChange={(event) => props.onAccount?.(event.target.value)}>{props.accounts.map((account) => <option key={account.key} value={account.key}>{account.label}</option>)}</select>}<button className="refresh" disabled={props.loading || !props.refreshable} onClick={() => void props.onRefresh()}>{props.loading ? "同步中…" : "完整刷新"}</button></div></div>

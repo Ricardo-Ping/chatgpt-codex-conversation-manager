@@ -103,7 +103,7 @@ button { cursor: pointer; }
 .list-head, .row { display: grid; grid-template-columns: 42px minmax(280px, 1fr) 118px; }
 .list-head { position: sticky; top: 0; z-index: 2; align-items: center; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); color: var(--text-faint); font-size: 11px; }
 .list-head span:last-child { text-align: right; }
-.row { align-items: start; padding: 9px 16px; border-bottom: 1px solid var(--border-soft); transition: background .15s; }
+.row { align-items: start; padding: 9px 16px; border-bottom: 1px solid var(--border-soft); transition: background .15s; cursor: pointer; user-select: none; }
 .row:hover, .row.selected { background: var(--row-hover); }
 .row.focused { box-shadow: inset 3px 0 0 var(--brand-glow); background: var(--row-focus); }
 .check { width: 28px; height: 28px; margin-top: 5px; display: grid; place-items: center; }
