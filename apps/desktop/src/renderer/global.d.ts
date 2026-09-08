@@ -12,7 +12,7 @@ declare global {
     openExternal(url: string): Promise<void>;
     appLanguage: "zh" | "en";
     setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
-    dialog: { pickDirectory(): Promise<{ directory: string | null }> };
+    dialog: { pickDirectory(payload?: { defaultPath?: string }): Promise<{ directory: string | null }> };
     chatgpt: {
       state(): Promise<PairingState>; beginPairing(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; showExtension(): Promise<string>;
       accounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;

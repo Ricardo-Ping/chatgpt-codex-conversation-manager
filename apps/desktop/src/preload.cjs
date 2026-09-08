@@ -49,7 +49,7 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     set: (value) => ipcRenderer.invoke("language:set", value)
   }),
   dialog: Object.freeze({
-    pickDirectory: () => ipcRenderer.invoke("dialog:pick-directory")
+    pickDirectory: (payload) => ipcRenderer.invoke("dialog:pick-directory", payload)
   }),
   updates: Object.freeze({
     getState: () => ipcRenderer.invoke("update:get-state"), setAutoUpdate: (enabled) => ipcRenderer.invoke("update:set-auto", enabled), check: () => ipcRenderer.invoke("update:check"), install: () => ipcRenderer.invoke("update:install"), openRelease: () => ipcRenderer.invoke("update:open-release"),

@@ -125,7 +125,7 @@ ipcMain.handle("chatgpt:batch", async (event, value) => {
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
-ipcMain.handle("dialog:pick-directory", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error(M().windowUnavailable); const result = await dialog.showOpenDialog(mainWindow, { title: M().pickSaveDir, properties: ["openDirectory", "createDirectory"] }); return { directory: result.canceled || !result.filePaths[0] ? null : result.filePaths[0] }; });
+ipcMain.handle("dialog:pick-directory", async (event, value) => { requireRenderer(event); if (!mainWindow) throw new Error(M().windowUnavailable); const input = value && typeof value === "object" ? value as { defaultPath?: unknown } : {}; const defaultPath = typeof input.defaultPath === "string" && input.defaultPath ? input.defaultPath : undefined; const result = await dialog.showOpenDialog(mainWindow, { title: M().pickSaveDir, defaultPath, properties: ["openDirectory", "createDirectory"] }); return { directory: result.canceled || !result.filePaths[0] ? null : result.filePaths[0] }; });
 ipcMain.handle("chatgpt:export", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const accountKey = requireAccount(input.accountKey);
