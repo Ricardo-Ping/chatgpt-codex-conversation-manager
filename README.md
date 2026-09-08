@@ -62,7 +62,7 @@ pnpm package:win
 
 ## 当前限制
 
-- `v0.2.0-preview.1` 首先支持 Windows x64、Chrome 和 Edge。
+- `v0.2.0` 支持 Windows x64、Chrome 和 Edge。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
 - macOS、Firefox 和官方 ChatGPT 桌面应用本地会话接口暂不支持。
 

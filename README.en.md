@@ -34,7 +34,7 @@ See [README.md](README.md) for the default Chinese documentation and [the implem
 
 ## Current limits
 
-`v0.2.0-preview.1` targets Windows x64 with Chrome or Edge. The extension is distributed as a Release ZIP; macOS, Firefox, and direct access to the official ChatGPT desktop client's private session are not supported yet.
+`v0.2.0` supports Windows x64 with Chrome or Edge. The extension is distributed as a Release ZIP; macOS, Firefox, and direct access to the official ChatGPT desktop client's private session are not supported yet.
 
 ## License
 
