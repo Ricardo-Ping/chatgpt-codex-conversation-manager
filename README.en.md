@@ -49,6 +49,8 @@ pnpm dev
 
 Build the Windows installer and portable executables with `pnpm package:win`.
 
+The app ships with English and Chinese UI. Switch it any time in Settings → Appearance; the choice is persisted and survives auto-updates.
+
 See [README.md](README.md) for the default Chinese documentation and [the implementation plan](docs/conversation-manager-implementation-plan.md) for resumable progress.
 
 ## Current limits

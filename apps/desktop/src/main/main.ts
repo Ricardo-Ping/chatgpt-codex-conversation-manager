@@ -10,6 +10,8 @@ import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { discoverCodexCommands } from "./codex-discovery.js";
 import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
+import { loadLanguagePreference, saveLanguagePreference, type AppLanguage } from "./language.js";
+import { MAIN_STRINGS } from "./strings.js";
 import { chatgptTranscriptMarkdown, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, safeFileName } from "./export.js";
 
 const { autoUpdater } = electronUpdater;
@@ -31,7 +33,9 @@ let currentChatBatchId: string | null = null;
 let activeBatchCount = 0;
 const confirmations = new Map<string, { source: "chatgpt" | "codex"; ids: string[]; fingerprint?: string; expiresAt: number }>();
 const canAutoInstallUpdate = supportsAutomaticInstallation(app.isPackaged, process.platform, process.env.PORTABLE_EXECUTABLE_FILE);
-let updateState = { phase: app.isPackaged ? "idle" : "unsupported", currentVersion: app.getVersion(), version: null as string | null, percent: null as number | null, message: app.isPackaged ? "等待检查更新" : "开发模式不检查更新", autoUpdate: true, canAutoInstall: canAutoInstallUpdate };
+let LANG: AppLanguage = "zh";
+const M = () => MAIN_STRINGS[LANG];
+let updateState = { phase: app.isPackaged ? "idle" : "unsupported", currentVersion: app.getVersion(), version: null as string | null, percent: null as number | null, message: M().idle, autoUpdate: true, canAutoInstall: canAutoInstallUpdate };
 
 function requireRenderer(event: IpcMainInvokeEvent): void { if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Untrusted IPC sender"); }
 function requireId(value: unknown): string { if (typeof value !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(value)) throw new Error("Invalid conversation ID"); return value; }
@@ -42,7 +46,7 @@ function requireState(value: unknown): CachedConversation["state"] { if (value !
 let logUnsubscribe: (() => void) | null = null;
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({ width: 1280, height: 820, minWidth: 760, minHeight: 560, title: "Conversation Manager", autoHideMenuBar: true, backgroundColor: nativeTheme.shouldUseDarkColors ? "#0c181b" : "#f4f8f7", webPreferences: { preload: join(__dirname, "..", "..", "src", "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true } });
-  await mainWindow.loadFile(join(__dirname, "..", "renderer", "index.html")); mainWindow.on("closed", () => { mainWindow = null; });
+  await mainWindow.loadFile(join(__dirname, "..", "renderer", "index.html"), { query: { lang: LANG } }); mainWindow.on("closed", () => { mainWindow = null; });
   if (logUnsubscribe) logUnsubscribe();
   logUnsubscribe = onLogLine((line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("log:appended", line); });
 }
@@ -67,7 +71,7 @@ async function connectCodex(): Promise<boolean> {
   })();
   try { return await codexConnection; } finally { codexConnection = null; }
 }
-async function checkForUpdates(): Promise<void> { if (!app.isPackaged || ["checking", "downloading"].includes(updateState.phase)) return; publishUpdateState({ phase: "checking", percent: null, message: "正在检查 GitHub Releases…" }); try { await autoUpdater.checkForUpdates(); } catch { publishUpdateState({ phase: "error", message: "检查更新失败，请稍后重试" }); } }
+async function checkForUpdates(): Promise<void> { if (!app.isPackaged || ["checking", "downloading"].includes(updateState.phase)) return; publishUpdateState({ phase: "checking", percent: null, message: M().checking }); try { await autoUpdater.checkForUpdates(); } catch { publishUpdateState({ phase: "error", message: M().updateError }); } }
 function scheduleAutomaticUpdates(): void { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); updateStartupTimer = null; updateInterval = null; if (!app.isPackaged || !autoUpdateEnabled) return; updateStartupTimer = setTimeout(() => void checkForUpdates(), 10_000); updateInterval = setInterval(() => void checkForUpdates(), UPDATE_CHECK_INTERVAL_MS); updateStartupTimer.unref(); updateInterval.unref(); }
 function scheduleUpdateInstall(): void {
   if (updateInstallTimer) return;
@@ -80,19 +84,20 @@ function scheduleUpdateInstall(): void {
 }
 function configureUpdater(): void {
   autoUpdater.allowPrerelease = app.getVersion().includes("-"); autoUpdater.autoDownload = canAutoInstallUpdate; autoUpdater.autoInstallOnAppQuit = canAutoInstallUpdate; autoUpdater.logger = null;
-  autoUpdater.on("checking-for-update", () => publishUpdateState({ phase: "checking", percent: null, message: "正在检查 GitHub Releases…" }));
-  autoUpdater.on("update-available", (info) => publishUpdateState({ phase: "available", version: info.version, message: canAutoInstallUpdate ? `发现 v${info.version}，正在下载` : `发现 v${info.version}，请前往 Release 下载` }));
-  autoUpdater.on("update-not-available", (info) => publishUpdateState({ phase: "not-available", version: info.version, percent: null, message: "当前已是最新版本" }));
-  autoUpdater.on("download-progress", (progress) => publishUpdateState({ phase: "downloading", percent: Math.round(progress.percent), message: `正在下载更新 ${Math.round(progress.percent)}%` }));
+  if (LANG === "en") autoUpdater.channel = "latest-en";
+  autoUpdater.on("checking-for-update", () => publishUpdateState({ phase: "checking", percent: null, message: M().checking }));
+  autoUpdater.on("update-available", (info) => publishUpdateState({ phase: "available", version: info.version, message: canAutoInstallUpdate ? M().downloadingUpdate(info.version) : M().downloadedManual(info.version) }));
+  autoUpdater.on("update-not-available", (info) => publishUpdateState({ phase: "not-available", version: info.version, percent: null, message: M().upToDate }));
+  autoUpdater.on("download-progress", (progress) => publishUpdateState({ phase: "downloading", percent: Math.round(progress.percent), message: M().downloadProgress(Math.round(progress.percent)) }));
   autoUpdater.on("update-downloaded", (info) => {
     if (canAutoInstallUpdate && autoUpdateEnabled) {
-      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，5 秒后自动重启安装` });
+      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: M().downloadedAuto(info.version) });
       scheduleUpdateInstall();
     } else {
-      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: `v${info.version} 已下载，可重启安装` });
+      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: M().downloadedManual(info.version) });
     }
   });
-  autoUpdater.on("error", () => publishUpdateState({ phase: "error", message: "更新失败，请手动打开 Release 页面" }));
+  autoUpdater.on("error", (error) => { logWarn(`updater error: ${error?.message ?? error}`); publishUpdateState({ phase: "error", message: M().updateError }); });
 }
 
 ipcMain.handle("app:version", (event) => { requireRenderer(event); return app.getVersion(); });
@@ -121,21 +126,21 @@ ipcMain.handle("chatgpt:batch", async (event, value) => {
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
-ipcMain.handle("dialog:pick-directory", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const result = await dialog.showOpenDialog(mainWindow, { title: "选择保存位置", properties: ["openDirectory", "createDirectory"] }); return { directory: result.canceled || !result.filePaths[0] ? null : result.filePaths[0] }; });
+ipcMain.handle("dialog:pick-directory", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error(M().windowUnavailable); const result = await dialog.showOpenDialog(mainWindow, { title: M().pickSaveDir, properties: ["openDirectory", "createDirectory"] }); return { directory: result.canceled || !result.filePaths[0] ? null : result.filePaths[0] }; });
 ipcMain.handle("chatgpt:export", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const accountKey = requireAccount(input.accountKey);
   const directory = typeof input.directory === "string" && input.directory ? input.directory : null;
-  if (!directory) throw new Error("未选择保存目录");
+  if (!directory) throw new Error(M().noDirectory);
   const rawItems = Array.isArray(input.items) ? input.items : [];
   const items = rawItems.map((item) => { const row = item && typeof item === "object" ? item as Record<string, unknown> : {}; return { id: requireId(row.id), title: typeof row.title === "string" ? row.title.slice(0, 120) : "" }; });
-  if (!items.length) throw new Error("未选择要保存的会话");
+  if (!items.length) throw new Error(M().noItems);
   await mkdir(directory, { recursive: true });
   let saved = 0; const failed: Array<{ id: string; message: string }> = [];
   for (const item of items) {
     try {
       const result = await bridge.request("read", { accountKey, id: item.id }, 120_000);
-      if (!result.ok) throw new Error(result.error?.message || "读取会话失败");
+      if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
       const payload = result.payload as { title?: unknown; messages?: unknown };
       const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
       const messages = rawMessages.map((message) => { const row = message && typeof message === "object" ? message as Record<string, unknown> : {}; return { role: typeof row.role === "string" ? row.role : "other", at: typeof row.at === "number" ? row.at : null, text: typeof row.text === "string" ? row.text : "" }; });
@@ -151,10 +156,10 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
 ipcMain.handle("codex:export", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const directory = typeof input.directory === "string" && input.directory ? input.directory : null;
-  if (!directory) throw new Error("未选择保存目录");
+  if (!directory) throw new Error(M().noDirectory);
   const rawItems = Array.isArray(input.items) ? input.items : [];
   const items = rawItems.map((item) => { const row = item && typeof item === "object" ? item as Record<string, unknown> : {}; return { id: requireId(row.id), title: typeof row.title === "string" ? row.title.slice(0, 120) : "", preview: typeof row.preview === "string" ? row.preview.slice(0, 500) : "", cwd: typeof row.cwd === "string" ? row.cwd : null }; });
-  if (!items.length) throw new Error("未选择要保存的任务");
+  if (!items.length) throw new Error(M().noItems);
   await mkdir(directory, { recursive: true });
   let saved = 0; const failed: Array<{ id: string; message: string }> = [];
   for (const item of items) {
@@ -185,7 +190,7 @@ function threadPayload(payload: unknown, item: { id: string; title: string; prev
 function threadLike(item: { id: string; title: string; preview: string; cwd: string | null }): { id: string; name: string | null; preview: string | null; cwd: string | null } { return { id: item.id, name: item.title || null, preview: item.preview || null, cwd: item.cwd }; }
 
 ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? "已连接本机 Codex App Server" : "已自动连接 ChatGPT/Codex 桌面客户端内置 App Server") : "未找到 ChatGPT/Codex 桌面客户端或可用的 Codex App Server", command: codexCommand }; });
-ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const result = await dialog.showOpenDialog(mainWindow, { title: "选择 Codex 可执行文件", properties: ["openFile"], filters: [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }] }); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
+ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const result = await dialog.showOpenDialog(mainWindow, { title: M().pickCodexExe, properties: ["openFile"], filters: [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }] }); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
 ipcMain.handle("codex:list", async (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return codex.list({ cursor: typeof input.cursor === "string" ? input.cursor : null, limit: 100, archived: input.archived === true, searchTerm: typeof input.searchTerm === "string" ? input.searchTerm.slice(0, 200) : null, full: input.full === true }); });
 ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); const id = requireId(value); try { const child = process.platform === "win32" ? spawn("powershell.exe", ["-NoExit", "-EncodedCommand", Buffer.from(`& '${codexCommand.replaceAll("'", "''")}' resume '${id}'`, "utf16le").toString("base64")], { detached: true, stdio: "ignore", windowsHide: false }) : spawn(codexCommand, ["resume", id], { detached: true, stdio: "ignore" }); child.unref(); return { opened: true }; } catch { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; } });
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || "未命名任务", derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
@@ -204,9 +209,9 @@ ipcMain.handle("codex:batch", async (event, value) => {
 });
 
 ipcMain.handle("update:get-state", (event) => { requireRenderer(event); return updateState; });
-ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; if (updateInstallTimer) { clearTimeout(updateInstallTimer); updateInstallTimer = null; } publishUpdateState({ autoUpdate: value, ...(value && updateState.phase === "downloaded" && canAutoInstallUpdate ? { message: `v${updateState.version} 已下载，5 秒后自动重启安装` } : {}) }); scheduleAutomaticUpdates(); if (value && updateState.phase === "downloaded" && canAutoInstallUpdate) scheduleUpdateInstall(); else if (value) void checkForUpdates(); return updateState; });
+ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; if (updateInstallTimer) { clearTimeout(updateInstallTimer); updateInstallTimer = null; } publishUpdateState({ autoUpdate: value, ...(value && updateState.phase === "downloaded" && canAutoInstallUpdate ? { message: M().downloadedAuto(updateState.version ?? "") } : {}) }); scheduleAutomaticUpdates(); if (value && updateState.phase === "downloaded" && canAutoInstallUpdate) scheduleUpdateInstall(); else if (value) void checkForUpdates(); return updateState; });
 ipcMain.handle("update:check", async (event) => { requireRenderer(event); await checkForUpdates(); return updateState; });
-ipcMain.handle("update:install", (event) => { requireRenderer(event); if (!canAutoInstallUpdate || !isUpdateInstallSafe(updateState.phase, activeBatchCount)) throw new Error(activeBatchCount ? "请等待批量操作完成后再安装更新" : "Update is not ready"); autoUpdater.quitAndInstall(true, true); });
+ipcMain.handle("update:install", (event) => { requireRenderer(event); if (!canAutoInstallUpdate || !isUpdateInstallSafe(updateState.phase, activeBatchCount)) throw new Error(activeBatchCount ? M().installWaitBatch : M().updateNotReady); autoUpdater.quitAndInstall(true, true); });
 ipcMain.handle("update:open-release", async (event) => { requireRenderer(event); await shell.openExternal(RELEASE_URL); });
 
 type ThemePreference = "system" | "light" | "dark";
@@ -216,12 +221,15 @@ ipcMain.handle("theme:set", async (event, value) => { requireRenderer(event); if
 ipcMain.handle("log:read", async (event) => { requireRenderer(event); return readLogs(); });
 ipcMain.handle("log:clear", async (event) => { requireRenderer(event); await clearLogs(); return true; });
 ipcMain.handle("log:save", async (event) => {
-  requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable");
-  const result = await dialog.showSaveDialog(mainWindow, { title: "保存运行日志", defaultPath: `conversation-manager-logs-${new Date().toISOString().slice(0, 10)}.log`, filters: [{ name: "日志", extensions: ["log", "txt"] }] });
+  requireRenderer(event); if (!mainWindow) throw new Error(M().windowUnavailable);
+  const result = await dialog.showSaveDialog(mainWindow, { title: M().saveLogTitle, defaultPath: `conversation-manager-logs-${new Date().toISOString().slice(0, 10)}.log`, filters: [{ name: "Log", extensions: ["log", "txt"] }] });
   if (result.canceled || !result.filePath) return { saved: false };
   await saveLogsTo(result.filePath);
   return { saved: true, path: result.filePath };
 });
+ipcMain.on("app:language-sync", (event) => { event.returnValue = LANG; });
+ipcMain.handle("language:get", (event) => { requireRenderer(event); return LANG; });
+ipcMain.handle("language:set", async (event, value) => { requireRenderer(event); if (value !== "zh" && value !== "en") throw new Error("Invalid language"); LANG = value; await saveLanguagePreference(app.getPath("userData"), LANG); return LANG; });
 
 function validateConfirmation(source: "chatgpt" | "codex", ids: string[], value: unknown) { const token = typeof value === "string" ? value : ""; const confirmation = confirmations.get(token); confirmations.delete(token); if (!confirmation || confirmation.source !== source || confirmation.expiresAt < Date.now() || JSON.stringify(confirmation.ids) !== JSON.stringify(ids)) throw new Error("删除确认已过期，请重新预览"); return confirmation; }
 function rememberConfirmation(source: "chatgpt" | "codex", ids: string[], fingerprint?: string): string { const now = Date.now(); for (const [token, entry] of confirmations) if (entry.expiresAt < now) confirmations.delete(token); const token = randomUUID(); confirmations.set(token, { source, ids, ...(fingerprint ? { fingerprint } : {}), expiresAt: now + 120_000 }); return token; }
@@ -247,6 +255,6 @@ const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 else app.on("second-instance", () => { if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); } });
 if (app.isPackaged) { app.setAsDefaultProtocolClient("conversation-manager"); app.setAsDefaultProtocolClient("cgn"); }
-app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); logInfo(`app start: v${app.getVersion()} packaged=${String(app.isPackaged)}`); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret")); indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); await bridge.start(); autoUpdateEnabled = await loadUpdatePreference(); updateState = { ...updateState, currentVersion: app.getVersion(), autoUpdate: autoUpdateEnabled }; configureUpdater(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { console.error(error); app.quit(); });
+app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); LANG = await loadLanguagePreference(userData); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret")); indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); await bridge.start(); autoUpdateEnabled = await loadUpdatePreference(); updateState = { ...updateState, currentVersion: app.getVersion(), autoUpdate: autoUpdateEnabled }; configureUpdater(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
 app.on("window-all-closed", () => { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); if (updateInstallTimer) clearTimeout(updateInstallTimer); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });

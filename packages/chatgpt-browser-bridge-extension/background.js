@@ -60,10 +60,10 @@ async function relayJob(job, secret) {
   beginKeepAlive();
   let result;
   try {
-    if (!Number.isFinite(job?.expiresAt) || job.expiresAt <= Date.now()) throw new Error("桌面命令已过期，未执行");
+    if (!Number.isFinite(job?.expiresAt) || job.expiresAt <= Date.now()) throw new Error("桌面命令已过期，未执行 / Desktop command expired");
     const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
     const tab = tabs[0];
-    if (!tab?.id) result = { ok: false, error: { code: "NO_CHATGPT_TAB", message: "请先在浏览器打开 ChatGPT", retryable: true } };
+    if (!tab?.id) result = { ok: false, error: { code: "NO_CHATGPT_TAB", message: "请先在浏览器打开 ChatGPT / Please open chatgpt.com in your browser first", retryable: true } };
     else result = await sendToChatGptTab(tab.id, { target: "conversation-manager-content", ...job });
   } catch (error) { result = { ok: false, error: { code: "INTERNAL_ERROR", message: error.message || String(error), retryable: true } }; }
   try { await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: job.requestId, ...result }) }); } catch {} finally { endKeepAlive(); }

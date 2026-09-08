@@ -1,7 +1,11 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const appLanguage = ipcRenderer.sendSync("app:language-sync");
+
 contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
   appVersion: () => ipcRenderer.invoke("app:version"),
+  appLanguage: appLanguage,
+  setAppLanguage: (value) => ipcRenderer.invoke("language:set", value),
   openExternal: (url) => ipcRenderer.invoke("external:open", url),
   chatgpt: Object.freeze({
     state: () => ipcRenderer.invoke("chatgpt:state"),
@@ -39,6 +43,10 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
   theme: Object.freeze({
     get: () => ipcRenderer.invoke("theme:get"),
     set: (value) => ipcRenderer.invoke("theme:set", value)
+  }),
+  language: Object.freeze({
+    get: () => ipcRenderer.invoke("language:get"),
+    set: (value) => ipcRenderer.invoke("language:set", value)
   }),
   dialog: Object.freeze({
     pickDirectory: () => ipcRenderer.invoke("dialog:pick-directory")

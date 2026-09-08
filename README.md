@@ -64,6 +64,10 @@ pnpm package:win
 
 详细实施与恢复记录见 [docs/conversation-manager-implementation-plan.md](docs/conversation-manager-implementation-plan.md)。英文说明见 [README.en.md](README.en.md)。
 
+## 语言
+
+应用内置中英双语，默认跟随安装语言显示中文。在「设置 → 外观」中可随时切换中文/English，选择持久化保存；自动更新保持在同一更新通道，切换语言不会影响版本更新。
+
 ## 当前限制
 
 - `v0.3.2` 支持 Windows x64、Chrome 和 Edge。

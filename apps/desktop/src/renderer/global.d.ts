@@ -10,6 +10,8 @@ declare global {
   interface Window { conversationManager: {
     appVersion(): Promise<string>;
     openExternal(url: string): Promise<void>;
+    appLanguage: "zh" | "en";
+    setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
     dialog: { pickDirectory(): Promise<{ directory: string | null }> };
     chatgpt: {
       state(): Promise<PairingState>; beginPairing(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; showExtension(): Promise<string>;
@@ -34,6 +36,7 @@ declare global {
       exportSessions(payload: { directory: string; items: Array<{ id: string; title: string; preview: string; cwd: string | null }> }): Promise<{ saved: number; failed: Array<{ id: string; message: string }>; directory: string }>;
     };
     logs: { read(): Promise<string>; clear(): Promise<boolean>; save(): Promise<{ saved: boolean; path?: string }>; onLine(callback: (line: string) => void): () => void };
+    language: { get(): Promise<"zh" | "en">; set(value: "zh" | "en"): Promise<"zh" | "en"> };
     theme: { get(): Promise<ThemePreference>; set(value: ThemePreference): Promise<ThemePreference> };
     updates: { getState(): Promise<UpdateState>; setAutoUpdate(enabled: boolean): Promise<UpdateState>; check(): Promise<UpdateState>; install(): Promise<void>; openRelease(): Promise<void>; onState(callback: (state: UpdateState) => void): () => void };
   }; }
