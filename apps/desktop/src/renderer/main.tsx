@@ -5,6 +5,7 @@ import type { CachedConversation, PairingState } from "@conversation-manager/cha
 import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
 import type { ThemePreference, UpdateState } from "./global.js";
 import { groupCodexConversations, isProjectTask } from "./codex-groups.js";
+import iconUrl from "./icon.png";
 import "./styles.css";
 import "./project-groups.css";
 
@@ -46,7 +47,7 @@ function App() {
   const bridgeText = extensionMismatch ? `扩展 v${bridge.extensionVersion} · 需重载` : bridge.connected ? "已连接" : bridge.paired ? "等待浏览器" : "未配对";
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">CM</span><div><strong>Conversation Manager</strong><small>ChatGPT · Codex</small></div></div>
+      <div className="brand"><img className="brand-mark" src={iconUrl} alt="" /><div><strong>Conversation Manager</strong><small>ChatGPT · Codex</small></div></div>
       <nav className="side-nav" aria-label="平台切换">
         <button type="button" className={`side-item ${page === "chatgpt" ? "active" : ""}`} aria-current={page === "chatgpt" ? "page" : undefined} onClick={() => openWorkspace("chatgpt")}><span className={`dot ${bridgeDot}`} title={extensionMismatch ? `浏览器扩展为 v${bridge.extensionVersion}，与主程序 v${version} 不一致，请在 chrome://extensions 中重新加载` : bridge.connected ? "桥接已连接" : bridge.paired ? "已配对，等待浏览器" : "未配对"}></span>ChatGPT</button>
         <button type="button" className={`side-item ${page === "codex" ? "active" : ""}`} aria-current={page === "codex" ? "page" : undefined} onClick={() => openWorkspace("codex")}><span className={`dot ${codexReady === true ? "ok" : codexReady === false ? "off" : "wait"}`} title={codexReady === true ? "App Server 已连接" : codexReady === false ? "未连接" : "检测中"}></span>Codex</button>
