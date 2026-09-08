@@ -27,7 +27,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function pair() {
   const response = await fetch(`${BASE}/pair/auto`, { method: "POST" });
   const body = await response.json();
-  if (!response.ok || !body.secret) throw new Error(body.error === "already_paired" ? "桌面端已与其他扩展配对，请先在设置中清除配对" : body.error || "配对失败");
+  if (!response.ok || !body.secret) throw new Error(body.error === "already_paired" ? "桌面端已与其他扩展配对，请先在设置中清除配对 / The desktop app is already paired — clear pairing in the desktop settings" : body.error || "Pairing failed / 配对失败");
   await chrome.storage.local.set({ bridgeSecret: body.secret }); void startPolling(); return { ok: true };
 }
 async function status() {
