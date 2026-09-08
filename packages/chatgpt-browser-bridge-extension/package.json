@@ -1,6 +1,6 @@
 {
   "name": "@conversation-manager/chatgpt-browser-bridge-extension",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "scripts": { "test": "node --test tests/*.test.js", "build": "node --check background.js && node --check content.js && node --check bridge-core.js && node --check popup.js" }
 }
