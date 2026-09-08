@@ -87,6 +87,13 @@ describe("ConversationIndexStore", () => {
     expect(store.read("account", "archived")?.records).toEqual([]);
   });
 
+  it("keeps the project id when a later sync returns an untagged copy", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
+    await store.replace("account", "默认账号", "active", [{ id: "proj-one", title: "Project task", createdAt: 1, updatedAt: 2, state: "active", projectId: "proj-1", pinned: false, current: false, automation: false }], true);
+    await store.merge("account", "默认账号", "active", [{ id: "proj-one", title: "Project task", createdAt: 1, updatedAt: 3, state: "active", pinned: false, current: false, automation: false }]);
+    expect(store.read("account", "active")?.records[0]?.projectId).toBe("proj-1");
+  });
+
   it("does not revive a recently confirmed deletion during full calibration", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
     const record = { id: "gone", title: "Gone", createdAt: 1, updatedAt: 2, state: "active" as const, pinned: false, current: false, automation: false };

@@ -156,6 +156,8 @@ button { cursor: pointer; }
 .settings article { padding: 22px; background: var(--surface-solid); border: 1px solid var(--border-card); border-radius: 16px; text-align: left; }
 .settings h2 { font-size: 16px; margin: 0 0 8px; color: var(--heading); }
 .settings article p { color: var(--text-muted); line-height: 1.6; font-size: 13px; }
+.settings .pair-feedback { margin: 4px 0 0; color: var(--brand-text); font-size: 12.5px; line-height: 1.6; }
+.settings .pair-code { margin: 12px 0 2px; width: auto; max-width: 240px; justify-items: center; padding: 10px; }
 .toggle { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 
 /* ---- 删除确认对话框 ---- */

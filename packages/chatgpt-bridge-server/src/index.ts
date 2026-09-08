@@ -165,7 +165,9 @@ export class ConversationIndexStore {
   }
   async merge(accountKey: string, label: string, state: CachedConversation["state"], records: CachedConversation[]): Promise<void> {
     const old = this.read(accountKey, state)?.records ?? [];
-    await this.replace(accountKey, label, state, dedupe([...old, ...records]), false);
+    const previous = new Map(old.map((record) => [record.id, record]));
+    const filled = records.map((record) => { const prior = previous.get(record.id); return !record.projectId && prior?.projectId ? { ...record, projectId: prior.projectId } : record; });
+    await this.replace(accountKey, label, state, dedupe([...old, ...filled]), false);
   }
   async apply(accountKey: string, action: "archive" | "restore" | "delete", succeeded: string[]): Promise<void> {
     const account = this.#data.accounts[accountKey]; if (!account) return; const ids = new Set(succeeded); const now = Date.now(); const mutations = account.mutations ??= {}; for (const id of ids) mutations[id] = { action, at: now };
