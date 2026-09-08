@@ -137,19 +137,24 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
   if (!items.length) throw new Error(M().noItems);
   await mkdir(directory, { recursive: true });
   let saved = 0; const failed: Array<{ id: string; message: string }> = [];
-  for (const item of items) {
-    try {
-      const result = await bridge.request("read", { accountKey, id: item.id }, 120_000);
-      if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
-      const payload = result.payload as { title?: unknown; messages?: unknown };
-      const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
-      const messages = rawMessages.map((message) => { const row = message && typeof message === "object" ? message as Record<string, unknown> : {}; return { role: typeof row.role === "string" ? row.role : "other", at: typeof row.at === "number" ? row.at : null, text: typeof row.text === "string" ? row.text : "" }; });
-      const transcript = { id: item.id, title: typeof payload.title === "string" ? payload.title.slice(0, 200) : item.title, messages };
-      const markdown = chatgptTranscriptMarkdown(transcript, Date.now(), "ChatGPT");
-      await writeFile(join(directory, safeFileName(transcript.title || item.title, item.id)), markdown, "utf8");
-      saved += 1;
-    } catch (error) { failed.push({ id: item.id, message: error instanceof Error ? error.message : String(error) }); }
-  }
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(3, items.length) }, async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      try {
+        const result = await bridge.request("read", { accountKey, id: item.id }, 120_000);
+        if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
+        const payload = result.payload as { title?: unknown; messages?: unknown };
+        const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
+        const messages = rawMessages.map((message) => { const row = message && typeof message === "object" ? message as Record<string, unknown> : {}; return { role: typeof row.role === "string" ? row.role : "other", at: typeof row.at === "number" ? row.at : null, text: typeof row.text === "string" ? row.text : "" }; });
+        const transcript = { id: item.id, title: typeof payload.title === "string" ? payload.title.slice(0, 200) : item.title, messages };
+        const markdown = chatgptTranscriptMarkdown(transcript, Date.now(), "ChatGPT");
+        await writeFile(join(directory, safeFileName(transcript.title || item.title, item.id)), markdown, "utf8");
+        saved += 1;
+      } catch (error) { failed.push({ id: item.id, message: error instanceof Error ? error.message : String(error) }); }
+    }
+  });
+  await Promise.all(workers);
   logInfo(`chatgpt export: saved ${saved}, failed ${failed.length}`);
   return { saved, failed, directory };
 });

@@ -7,6 +7,15 @@
   const ACTIVE_TASKS = new Set(["active", "scheduled", "pending", "enabled"]);
   const NON_SCHEDULED_TASK = /pro[_ -]?mode|deep[_ -]?research|image[_ -]?(?:generation|gen)|imagegen|dall[ -]?e/i;
   const PAGE_SIZE = 50; // ChatGPT 后端限制分页大小上限为 50
+  const PROJECT_FETCH_CONCURRENCY = 3;
+
+  async function mapLimit(items, limit, worker) {
+    let cursor = 0;
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (cursor < items.length) { const item = items[cursor++]; await worker(item, cursor - 1); }
+    });
+    await Promise.all(runners);
+  }
 
   class BridgeError extends Error {
     constructor(code, message, retryable = false) { super(message); this.code = code; this.retryable = retryable; }
@@ -108,7 +117,7 @@
         const discovered = new Set(); const cachedProjects = this.projects.get(accountId);
         if (checkpoint && cachedProjects && Date.now() - cachedProjects.at < 120_000) for (const id of cachedProjects.ids) discovered.add(id);
         else { let sidebarCursor = null; for (;;) { const query = new URLSearchParams({ limit: String(PAGE_SIZE), owned_only: "true", conversations_per_gizmo: "0" }); if (sidebarCursor !== null) query.set("cursor", String(sidebarCursor)); const sidebar = await this.request(`/backend-api/gizmos/snorlax/sidebar?${query}`, accountId, { signal }); for (const id of projectIds(sidebar)) discovered.add(id); const next = sidebar?.cursor ?? sidebar?.next_cursor ?? sidebar?.nextCursor; if (next === undefined || next === null || String(next) === String(sidebarCursor)) break; sidebarCursor = next; } this.projects.set(accountId, { ids: [...discovered], at: Date.now() }); }
-        for (const projectId of discovered) {
+        await mapLimit([...discovered], PROJECT_FETCH_CONCURRENCY, async (projectId) => {
           let projectCursor = 0;
           for (;;) {
             const query = new URLSearchParams({ cursor: String(projectCursor), limit: String(PAGE_SIZE), owned_only: "true" });
@@ -122,7 +131,7 @@
             if (payload?.has_more === true && rows.length) { projectCursor = Number(projectCursor) + rows.length; continue; }
             break;
           }
-        }
+        });
       }
       if (!archived) {
         const pins = await this.request("/backend-api/pins", accountId, { signal });
@@ -174,8 +183,13 @@
       if (targetConflicts || body?.success === false || body?.ok === false || body?.error || !(body?.success === true || body?.ok === true || targetConfirmed)) throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 未确认操作成功");
     }
     async request(path, accountId, options = {}) {
-      const response = await this.fetch(path, { ...options, credentials: "include", headers: { ...options.headers, ...this.headers(accountId) } });
-      if (!response.ok) { if (response.status === 401 || response.status === 403) this.auth = null; throw await responseError(response, "读取 ChatGPT 数据失败"); } try { return await response.json(); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回结构无法解析"); }
+      let response;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        response = await this.fetch(path, { ...options, credentials: "include", headers: { ...options.headers, ...this.headers(accountId) } });
+        if (options.signal?.aborted || (response.status !== 429 && response.status < 500)) break;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt)));
+      }
+      if (!response?.ok) { if (response.status === 401 || response.status === 403) this.auth = null; throw await responseError(response, "读取 ChatGPT 数据失败"); } try { return await response.json(); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回结构无法解析"); }
     }
   }
   async function responseError(response, prefix) {

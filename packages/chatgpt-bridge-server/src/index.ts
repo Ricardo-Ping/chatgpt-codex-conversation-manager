@@ -80,7 +80,14 @@ export class ChatGptBridgeServer {
       this.#lastSeen = Date.now();
       const reported = req.headers["x-extension-version"];
       if (typeof reported === "string" && /^[0-9.]{1,20}$/.test(reported)) this.#extensionVersion = reported;
-      if (req.method === "GET" && req.url === "/v1/commands") return json(res, 200, this.#commands.splice(0, 20));
+      if (req.method === "GET" && (req.url === "/v1/commands" || req.url?.startsWith("/v1/commands?"))) {
+        const waitSeconds = Number(new URLSearchParams(req.url?.split("?")[1] ?? "").get("wait") ?? 0);
+        if (!this.#commands.length && Number.isFinite(waitSeconds) && waitSeconds > 0) {
+          const deadline = Date.now() + Math.min(waitSeconds, 25) * 1000;
+          while (!this.#commands.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return json(res, 200, this.#commands.splice(0, 20));
+      }
       if (req.method === "POST" && req.url === "/v1/results") {
         const result = await readJson<BridgeResult>(req);
         if (result.protocolVersion !== 1 || typeof result.requestId !== "string" || typeof result.ok !== "boolean") return json(res, 400, { error: "invalid_result" });

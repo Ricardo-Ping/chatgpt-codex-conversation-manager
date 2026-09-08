@@ -77,6 +77,21 @@ describe("ConversationIndexStore", () => {
     expect(store.stats().lastFullSyncedAt).not.toBeNull();
   });
 
+  it("holds the commands long-poll until a command is queued", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
+    const port = 33000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const pairing = server.beginPairing();
+    const pairResponse = await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: pairing.code }) });
+    const { secret } = await pairResponse.json() as { secret: string };
+    const startedAt = Date.now();
+    const poll = fetch(`http://127.0.0.1:${port}/v1/commands?wait=3`, { headers: { Authorization: `Bearer ${secret}` } }).then((response) => response.json() as Promise<Array<{ requestId: string }>>);
+    server.request("list", { mode: "incremental", checkpoint: null }).catch(() => {});
+    const commands = await poll;
+    expect(commands.length).toBe(1);
+    expect(Date.now() - startedAt).toBeLessThan(2500);
+  });
+
   it("moves and deletes only server-confirmed records", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
     await store.replace("account", "默认账号", "active", [{ id: "one", title: "One", createdAt: 1, updatedAt: 2, state: "active", pinned: false, current: false, automation: false }], true);
