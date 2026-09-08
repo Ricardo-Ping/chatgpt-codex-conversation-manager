@@ -141,8 +141,9 @@
       }
       return dedupe(records);
     }
-    async readConversation(accountId, id, signal) {
-      const data = await this.request(`/backend-api/conversation/${encodeURIComponent(id)}`, accountId, { signal });
+    async readConversation(accountKey, id, signal) {
+      const account = await this.resolveAccount(accountKey);
+      const data = await this.request(`/backend-api/conversation/${encodeURIComponent(id)}`, account.rawId, { signal });
       if (!data || typeof data !== "object" || !data.mapping || typeof data.mapping !== "object") throw new BridgeError("INCOMPATIBLE_API", "会话内容接口结构已变化");
       const messages = [];
       const root = Object.keys(data.mapping).find((key) => data.mapping[key]?.parent === null) || Object.keys(data.mapping)[0];
