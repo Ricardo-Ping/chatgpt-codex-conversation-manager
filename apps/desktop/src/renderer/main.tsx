@@ -40,6 +40,7 @@ function App() {
   const [workspaceStates, setWorkspaceStates] = useState<{ chatgpt: ConversationState; codex: ConversationState }>({ chatgpt: "active", codex: "active" });
   const [workspaceKinds, setWorkspaceKinds] = useState<{ chatgpt: "chat" | "work" }>({ chatgpt: "chat" });
   const [chatCounts, setChatCounts] = useState<Partial<Record<ConversationState, { chat: number; work: number }>>>({});
+  const [codexCounts, setCodexCounts] = useState<Partial<Record<ConversationState, number>>>({});
   const reportCodexStatus = useCallback((available: boolean) => setCodexReady(available), []);
   const setWorkspaceState = useCallback((value: ConversationState) => setWorkspaceStates((old) => ({ ...old, [page === "codex" ? "codex" : "chatgpt"]: value })), [page]);
   useEffect(() => { void window.conversationManager.appVersion().then(setVersion); }, []);
@@ -56,7 +57,7 @@ function App() {
       </nav>
       {page !== "settings" && <div className="side-states">
         <p className="side-states-label">会话状态</p>
-        <Segmented vertical value={page === "codex" ? workspaceStates.codex : workspaceStates.chatgpt} options={(page === "codex" ? (["active", "archived"] as ConversationState[]) : (["active", "archived", "scheduled"] as ConversationState[])).map((value) => { const split = chatCounts[value]; const count = page === "chatgpt" && split ? (workspaceKinds.chatgpt === "work" ? split.work : split.chat) : undefined; return [value, <React.Fragment key={value}>{stateLabels[value]}{typeof count === "number" && <span className="count">{count}</span>}</React.Fragment>] as [ConversationState, React.ReactNode]; })} onChange={setWorkspaceState} aria-label="会话状态"/>
+        <Segmented vertical value={page === "codex" ? workspaceStates.codex : workspaceStates.chatgpt} options={(page === "codex" ? (["active", "archived"] as ConversationState[]) : (["active", "archived", "scheduled"] as ConversationState[])).map((value) => { const split = chatCounts[value]; const count = page === "chatgpt" ? (split ? (workspaceKinds.chatgpt === "work" ? split.work : split.chat) : undefined) : codexCounts[value]; return [value, <React.Fragment key={value}>{stateLabels[value]}{typeof count === "number" && <span className="count">{count}</span>}</React.Fragment>] as [ConversationState, React.ReactNode]; })} onChange={setWorkspaceState} aria-label="会话状态"/>
       </div>}
       <div className="side-status" aria-label="连接状态">
         <p className={extensionMismatch ? "stale" : undefined}><span className={`dot ${bridgeDot}`}></span><strong>ChatGPT 桥接</strong>{bridgeText}</p>
@@ -67,7 +68,7 @@ function App() {
         <small className="side-version">v{version}</small>
       </div>
     </aside>
-    <main className="content">{page === "chatgpt" ? <ChatGptWorkspace bridge={bridge} state={workspaceStates.chatgpt} onState={(value) => setWorkspaceStates((old) => ({ ...old, chatgpt: value }))} kind={workspaceKinds.chatgpt} onKind={(value) => setWorkspaceKinds({ chatgpt: value })} onCounts={setChatCounts} /> : page === "codex" ? <CodexWorkspace onStatus={reportCodexStatus} state={workspaceStates.codex} onState={(value) => setWorkspaceStates((old) => ({ ...old, codex: value }))} /> : <Settings version={version} onCodexStatus={reportCodexStatus} />}</main>
+    <main className="content">{page === "chatgpt" ? <ChatGptWorkspace bridge={bridge} state={workspaceStates.chatgpt} onState={(value) => setWorkspaceStates((old) => ({ ...old, chatgpt: value }))} kind={workspaceKinds.chatgpt} onKind={(value) => setWorkspaceKinds({ chatgpt: value })} onCounts={setChatCounts} /> : page === "codex" ? <CodexWorkspace onStatus={reportCodexStatus} state={workspaceStates.codex} onState={(value) => setWorkspaceStates((old) => ({ ...old, codex: value }))} onCounts={setCodexCounts} /> : <Settings version={version} onCodexStatus={reportCodexStatus} />}</main>
   </div>;
 }
 
@@ -123,12 +124,12 @@ function ConnectionCard() {
   </section>;
 }
 
-function CodexWorkspace({ onStatus, state, onState }: { onStatus?(available: boolean): void; state: ConversationState; onState(state: ConversationState): void }) {
+function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(available: boolean): void; state: ConversationState; onState(state: ConversationState): void; onCounts(counts: Partial<Record<ConversationState, number>> | ((old: Partial<Record<ConversationState, number>>) => Partial<Record<ConversationState, number>>)): void }) {
   const archived = state === "archived";
   const [available, setAvailable] = useState<boolean | null>(null); const [status, setStatus] = useState("正在连接本机 Codex…"); const [records, setRecords] = useState<ManagedConversation[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const recordsByState = useRef<Partial<Record<ConversationState, ManagedConversation[]>>>({});
   const { confirm, dialog } = useConfirm();
-  async function load(full = false) { setLoading(true); setError(""); try { const all: CodexThread[] = []; let cursor: string | null = null; do { const page = await window.conversationManager.codex.list({ cursor, archived, full }); all.push(...page.data); cursor = page.nextCursor; } while (cursor); const merged = [...new Map(all.map((thread) => [thread.id, toCodexManaged(thread, archived)])).values()]; recordsByState.current = { ...recordsByState.current, [state]: merged }; setRecords(merged); setNotice(`${full ? "完整校准完成" : "同步完成"}：共 ${merged.length} 条任务`); } catch (cause) { setError(message(cause)); } finally { setLoading(false); } }
+  async function load(full = false) { setLoading(true); setError(""); try { const all: CodexThread[] = []; let cursor: string | null = null; do { const page = await window.conversationManager.codex.list({ cursor, archived, full }); all.push(...page.data); cursor = page.nextCursor; } while (cursor); const merged = [...new Map(all.map((thread) => [thread.id, toCodexManaged(thread, archived)])).values()]; recordsByState.current = { ...recordsByState.current, [state]: merged }; setRecords(merged); onCounts({ [state]: merged.length }); setNotice(`${full ? "完整校准完成" : "同步完成"}：共 ${merged.length} 条任务`); } catch (cause) { setError(message(cause)); } finally { setLoading(false); } }
   useEffect(() => { void window.conversationManager.codex.status().then((value) => { setAvailable(value.available); setStatus(value.message); onStatus?.(value.available); if (value.available) void load(); }); }, []);
   useEffect(() => { if (!available) return; const cachedRecords = recordsByState.current[state]; if (cachedRecords) { setRecords(cachedRecords); setNotice(""); } void load(); }, [state]);
   if (available === false) return <section className="connection-card"><div className="connection-art">⌘</div><p className="eyebrow">统一桌面客户端 · 本机 App Server</p><h1>暂时无法连接 Codex</h1><p>{status}</p><button className="primary" onClick={() => location.reload()}>重新检测</button><button onClick={() => void window.conversationManager.openExternal("https://developers.openai.com/codex/app-server")}>查看安装文档</button></section>;
@@ -136,7 +137,7 @@ function CodexWorkspace({ onStatus, state, onState }: { onStatus?(available: boo
     <ManagerLayout source="codex" title="Codex 任务" subtitle={status} emptyHint="点击“完整刷新”从本机 App Server 读取任务；若仍为空，请确认已在 Codex 客户端创建过会话。" state={state} onState={onState} records={records} writable={available === true && !loading} refreshable={available === true} loading={loading} error={error} notice={notice} onRefresh={() => load(true)} onOpen={async (record) => { const result = await window.conversationManager.codex.open(record.id); if (!result.opened) setNotice("已复制恢复命令，请在终端运行"); }} onBatch={async (action, ids) => {
       const codexAction = action === "restore" ? "unarchive" : action; let token: string | undefined;
       if (action === "delete") { if (!(await confirm(deleteConfirmOptions(ids, records, "任务")))) return null; const preview = await window.conversationManager.codex.previewDelete(ids); if (preview.missing.length || preview.running.length || !preview.confirmationToken) throw new Error("部分任务不存在或仍在运行，无法删除"); if (preview.tasks.length > ids.length && !(await confirm({ title: `同时删除 ${preview.tasks.length - ids.length} 个派生任务`, body: "选中任务带有派生子任务，将随主任务一并删除，此操作无法撤销。" }))) return null; token = preview.confirmationToken; }
-      const result = await window.conversationManager.codex.runBatch(codexAction, ids, token); const removed = new Set(result.succeeded); const next = records.filter((record) => !removed.has(record.id)); recordsByState.current = { ...recordsByState.current, [state]: next }; setRecords(next); return result;
+      const result = await window.conversationManager.codex.runBatch(codexAction, ids, token); const removed = new Set(result.succeeded); const next = records.filter((record) => !removed.has(record.id)); recordsByState.current = { ...recordsByState.current, [state]: next }; setRecords(next); onCounts({ [state]: next.length }); if (codexAction === "archive" || codexAction === "unarchive") { const to = codexAction === "archive" ? "archived" : "active"; onCounts((old) => ({ ...old, [to]: (old[to] ?? 0) + result.succeeded.length })); } return result;
     }} />
     {dialog}
   </>;
