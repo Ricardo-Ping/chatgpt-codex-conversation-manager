@@ -53,3 +53,4 @@ results.refreshBtn = await evalJs(`document.querySelector(".title-actions .refre
 results.saveBtn = await evalJs(`document.querySelector(".primary-actions .secondary")?.textContent`);
 
 console.log(JSON.stringify(results, null, 2));
+process.exit(0);
