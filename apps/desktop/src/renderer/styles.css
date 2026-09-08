@@ -82,7 +82,8 @@ button { cursor: pointer; }
 .workspace h1, .settings h1, .connection-card h1 { font-size: 26px; margin: 0 0 5px; color: var(--heading); }
 .workspace-title p:not(.eyebrow) { margin: 0; color: var(--text-muted); font-size: 13px; }
 .title-actions { display: flex; gap: 9px; }
-.title-actions select, .refresh, .card-actions button, .settings button { border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 10px; padding: 9px 13px; }
+.title-actions select, .title-actions button, .refresh, .card-actions button, .settings button { border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 10px; padding: 9px 13px; }
+.title-actions button:hover, .refresh:hover { border-color: var(--brand-glow); color: var(--brand-text); }
 .refresh:disabled { opacity: .5; }
 
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 13px; }
