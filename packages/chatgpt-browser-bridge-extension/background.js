@@ -1,6 +1,19 @@
 "use strict";
 const BASE = "http://127.0.0.1:32147/v1";
 let polling = false;
+let keepAliveTimer = null;
+let inFlightCommands = 0;
+
+// MV3 会在空闲约 30 秒后休眠 Service Worker；长命令执行期间通过定期调用扩展 API 重置空闲计时器
+function beginKeepAlive() {
+  inFlightCommands += 1;
+  if (keepAliveTimer) return;
+  keepAliveTimer = setInterval(() => { void chrome.runtime.getPlatformInfo(); }, 20_000);
+}
+function endKeepAlive() {
+  inFlightCommands = Math.max(0, inFlightCommands - 1);
+  if (inFlightCommands === 0 && keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+}
 
 chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create("conversation-manager-poll", { periodInMinutes: 0.5 }); void startPolling(); });
 chrome.runtime.onStartup.addListener(() => void startPolling());
@@ -32,32 +45,42 @@ async function startPolling() {
       if (!bridgeSecret) { try { await pair(); ({ bridgeSecret } = await chrome.storage.local.get("bridgeSecret")); } catch {} }
       if (!bridgeSecret) break;
       try {
-        const response = await fetch(`${BASE}/commands`, { headers: { Authorization: `Bearer ${bridgeSecret}`, "X-Extension-Version": chrome.runtime.getManifest().version } });
+        const authorization = "Bearer " + bridgeSecret;
+        const commandsUrl = `${BASE}/commands`;
+        const response = await fetch(commandsUrl, { headers: { Authorization: authorization, "X-Extension-Version": chrome.runtime.getManifest().version } });
         if (response.status === 401) { await chrome.storage.local.remove("bridgeSecret"); break; }
-        if (response.ok) { delay = 1500; for (const command of await response.json()) void run(command, bridgeSecret); }
+        if (response.ok) { delay = 1500; for (const job of await response.json()) void relayJob(job, bridgeSecret); }
         else delay = 5000;
       } catch { delay = 5000; }
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   } finally { polling = false; }
 }
-async function run(command, secret) {
+async function relayJob(job, secret) {
+  beginKeepAlive();
   let result;
   try {
-    if (!Number.isFinite(command?.expiresAt) || command.expiresAt <= Date.now()) throw new Error("桌面命令已过期，未执行");
+    if (!Number.isFinite(job?.expiresAt) || job.expiresAt <= Date.now()) throw new Error("桌面命令已过期，未执行");
     const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
     const tab = tabs[0];
     if (!tab?.id) result = { ok: false, error: { code: "NO_CHATGPT_TAB", message: "请先在浏览器打开 ChatGPT", retryable: true } };
-    else result = await sendToChatGptTab(tab.id, { target: "conversation-manager-content", ...command });
+    else result = await sendToChatGptTab(tab.id, { target: "conversation-manager-content", ...job });
   } catch (error) { result = { ok: false, error: { code: "INTERNAL_ERROR", message: error.message || String(error), retryable: true } }; }
-  await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: command.requestId, ...result }) });
+  try { await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: job.requestId, ...result }) }); } catch {} finally { endKeepAlive(); }
 }
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function sendToChatGptTab(tabId, message) {
   try { return await chrome.tabs.sendMessage(tabId, message); }
   catch (error) {
     if (!/receiving end does not exist|could not establish connection/i.test(error?.message || String(error))) throw error;
     await chrome.scripting.executeScript({ target: { tabId }, files: ["bridge-core.js", "content.js"] });
-    return chrome.tabs.sendMessage(tabId, message);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await wait(300 * (attempt + 1));
+      try { return await chrome.tabs.sendMessage(tabId, message); } catch (retryError) {
+        if (attempt === 2 || !/receiving end does not exist|could not establish connection/i.test(retryError?.message || String(retryError))) throw retryError;
+      }
+    }
+    throw new Error("Receiving end does not exist");
   }
 }
 
