@@ -42,6 +42,7 @@ export function renderMarkdown(text: string): string {
     if (highlighted) { code.innerHTML = highlighted.value; code.classList.add("hljs"); }
   });
   container.querySelectorAll("a").forEach((link) => { link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); });
+  container.querySelectorAll("img").forEach((image) => image.setAttribute("loading", "lazy"));
   return container.innerHTML;
 }
 

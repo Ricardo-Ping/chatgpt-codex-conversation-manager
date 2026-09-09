@@ -151,6 +151,9 @@ button { cursor: pointer; }
 .viewer-text a { color: var(--brand-text); }
 .viewer-text blockquote { margin: 8px 0; padding: 2px 12px; border-left: 3px solid #6cb9b1; color: var(--text-muted); }
 .viewer-status { color: var(--text-muted); font-size: 13px; }
+.notice { position: relative; }
+.notice-close { position: absolute; top: 6px; right: 10px; border: none; background: transparent; color: inherit; font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.notice-close:hover { background: rgba(0, 0, 0, .08); }
 .row:hover, .row.selected { background: var(--row-hover); }
 .row.focused { box-shadow: inset 3px 0 0 var(--brand-glow); background: var(--row-focus); }
 .check { width: 28px; height: 28px; margin-top: 5px; display: grid; place-items: center; }
