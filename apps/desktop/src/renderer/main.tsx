@@ -67,7 +67,7 @@ function App() {
       </div>
       <div className="side-footer">
         <button type="button" className={`side-item ${page === "settings" ? "active" : ""}`} title={page === "settings" ? t("返回上一页面") : t("设置")} onClick={toggleSettings}><span aria-hidden="true">⚙</span>{page === "settings" ? t("返回") : t("设置")}</button>
-        <small className="side-version">v{version}</small>
+        <small className="side-version">v{version} · Ricardo_Ping</small>
       </div>
     </aside>
     <main className="content">{page === "chatgpt" ? <ChatGptWorkspace bridge={bridge} state={workspaceStates.chatgpt} onState={(value) => setWorkspaceStates((old) => ({ ...old, chatgpt: value }))} kind={workspaceKinds.chatgpt} onKind={(value) => setWorkspaceKinds({ chatgpt: value })} onCounts={setChatCounts} /> : page === "codex" ? <CodexWorkspace onStatus={reportCodexStatus} state={workspaceStates.codex} onState={(value) => setWorkspaceStates((old) => ({ ...old, codex: value }))} onCounts={setCodexCounts} /> : <Settings version={version} lang={lang} onLanguage={changeLanguage} onCodexStatus={reportCodexStatus} />}</main>

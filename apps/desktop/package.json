@@ -4,7 +4,13 @@
   "private": true,
   "type": "module",
   "description": "Conversation management for ChatGPT and Codex",
-  "author": "Ricardo Ping",
+  "author": "Ricardo-Ping (https://github.com/Ricardo-Ping)",
+  "license": "MIT",
+  "homepage": "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager.git"
+  },
   "main": "dist/main/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.main.json && vite build",

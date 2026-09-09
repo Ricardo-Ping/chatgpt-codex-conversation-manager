@@ -3,6 +3,13 @@
   "version": "0.5.2",
   "private": true,
   "description": "Local desktop conversation manager for ChatGPT and Codex",
+  "author": "Ricardo-Ping (https://github.com/Ricardo-Ping)",
+  "license": "MIT",
+  "homepage": "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager.git"
+  },
   "packageManager": "pnpm@11.19.0",
   "scripts": {
     "build": "pnpm -r --if-present build",
