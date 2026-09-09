@@ -28,4 +28,11 @@ describe("groupCodexConversations", () => {
     expect(groups).toHaveLength(1);
     expect(groups.map((group) => group.records.map((item) => item.id))).toEqual([["p1", "p2"]]);
   });
+
+  it("moves excluded folder-grouped tasks into the non-project group", () => {
+    const groups = groupCodexConversations([row("a", "X:\\work\\alpha"), row("b", "X:\\work\\beta")], new Set(["a"]));
+    expect(groups.map((group) => [group.name, group.records.map((item) => item.id)])).toEqual([["非项目任务", ["a"]], ["beta", ["b"]]]);
+    expect(isProjectTask(row("a", "X:\\work\\alpha"), new Set(["a"]))).toBe(false);
+    expect(isProjectTask(row("p", "X:\\work\\alpha", "proj-1"), new Set(["p"]))).toBe(true);
+  });
 });

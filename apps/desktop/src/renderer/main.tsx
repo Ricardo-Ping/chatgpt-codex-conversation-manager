@@ -4,7 +4,7 @@ import { bulkSelectableIds, filterConversations, type AgeFilter, type Conversati
 import type { CachedConversation, PairingState } from "@conversation-manager/chatgpt-bridge-server";
 import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
 import type { ThemePreference, UpdateState } from "./global.js";
-import { groupChatGptConversations, groupCodexConversations, isProjectTask } from "./codex-groups.js";
+import { groupChatGptConversations, groupCodexConversations, isFolderGrouped, isProjectTask } from "./codex-groups.js";
 import { initialLanguage, setLanguage, t, type Lang } from "./strings.js";
 import iconUrl from "./icon.png";
 import "./styles.css";
@@ -173,10 +173,12 @@ function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(avai
 
 function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subtitle: string; emptyHint: string; kind?: "chat" | "work"; onKind?(value: "chat" | "work"): void; onOpenExternal?(): void; onExport?(ids: string[]): Promise<string>; accounts?: Account[]; accountKey?: string; onAccount?(key: string): void; state: ConversationState; onState(state: ConversationState): void; records: ManagedConversation[]; projectNames?: Record<string, string>; projects?: Array<{ id: string; name: string }>; projectsLoading?: boolean; onReloadProjects?(): void; onProjectMove?(record: ManagedConversation, projectId: string | null): void | Promise<void>; writable: boolean; refreshable: boolean; loading: boolean; error: string; notice: string; onRefresh(): void | Promise<void>; onOpen(record: ManagedConversation): void | Promise<void>; onCancel?(): Promise<{ cancelled: boolean }>; onBatch(action: "archive" | "restore" | "delete", ids: string[]): Promise<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] } | null> }) {
   const [query, setQuery] = useState(""); const deferredQuery = useDeferredValue(query); const [age, setAge] = useState<AgeFilter>("all"); const [sort, setSort] = useState<"newest" | "oldest">("newest"); const [selected, setSelected] = useState<Set<string>>(new Set()); const [busy, setBusy] = useState(false); const [localNotice, setLocalNotice] = useState(""); const [limit, setLimit] = useState(100); const [focusId, setFocusId] = useState<string | null>(null); const [menu, setMenu] = useState<{ x: number; y: number; record: ManagedConversation } | null>(null);
+  const [folderExclusions, setFolderExclusions] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem("cm-codex-folder-exclusions") || "[]") as string[]); } catch { return new Set(); } });
+  const toggleFolderExclusion = useCallback((id: string, excluded: boolean) => setFolderExclusions((old) => { const next = new Set(old); if (excluded) next.add(id); else next.delete(id); try { localStorage.setItem("cm-codex-folder-exclusions", JSON.stringify([...next])); } catch {} return next; }), []);
   const searchRef = useRef<HTMLInputElement>(null); const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setSelected(new Set()); setLimit(100); setFocusId(null); }, [props.state, props.accountKey, age, props.kind]);
   const visible = useMemo(() => filterConversations(props.records, { state: props.state, query: deferredQuery, age }).sort((a, b) => sort === "newest" ? (b.updatedAt ?? 0) - (a.updatedAt ?? 0) : (a.updatedAt ?? 0) - (b.updatedAt ?? 0)), [props.records, props.state, deferredQuery, age, sort]); const shown = visible.slice(0, limit); const selectable = bulkSelectableIds(visible); const allSelected = selectable.length > 0 && selectable.every((id) => selected.has(id));
-  const groups = props.source === "codex" ? groupCodexConversations(shown) : props.kind === "work" ? groupChatGptConversations(shown, props.projectNames) : null;
+  const groups = props.source === "codex" ? groupCodexConversations(shown, folderExclusions) : props.kind === "work" ? groupChatGptConversations(shown, props.projectNames) : null;
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(`cm-collapsed-groups:${props.source}`) || "[]") as string[]); } catch { return new Set(); } });
   const toggleGroup = (key: string, open: boolean) => setCollapsedGroups((old) => { const next = new Set(old); if (open) next.delete(key); else next.add(key); try { localStorage.setItem(`cm-collapsed-groups:${props.source}`, JSON.stringify([...next])); } catch {} return next; });
   const toggleOne = (id: string) => setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -184,6 +186,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   const runRefresh = () => { setLocalNotice(""); return Promise.resolve(props.onRefresh()); };
   useEffect(() => { if (!menu) return; const close = () => setMenu(null); const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); }; window.addEventListener("click", close); window.addEventListener("resize", close); window.addEventListener("blur", close); window.addEventListener("keydown", onKey); return () => { window.removeEventListener("click", close); window.removeEventListener("resize", close); window.removeEventListener("blur", close); window.removeEventListener("keydown", onKey); }; }, [menu]);
   const runProjectMove = (projectId: string | null) => { const target = menu?.record; setMenu(null); if (!target || busy) return; setLocalNotice(""); void (async () => { setBusy(true); try { await props.onProjectMove?.(target, projectId); } finally { setBusy(false); } })(); };
+  const runFolderToggle = (exclude: boolean) => { const target = menu?.record; setMenu(null); if (!target) return; toggleFolderExclusion(target.id, exclude); setLocalNotice(exclude ? t("已移出文件夹") : t("已恢复文件夹分组")); };
   async function runExport() { if (!props.onExport) return; setBusy(true); setLocalNotice(""); try { setLocalNotice(await props.onExport([...selected])); } catch (cause) { setLocalNotice(`${t("保存失败")}：${message(cause)}`); } finally { setBusy(false); } }
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -201,7 +204,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   });
   const renderRow = (record: ManagedConversation) => {
     const selectableRow = props.state !== "scheduled" && !record.running && record.capabilities.some((value) => value === "archive" || value === "restore" || value === "delete");
-    const sub = props.source === "codex" ? `${record.preview ? `${record.preview} · ` : ""}${isProjectTask(record) ? t("项目任务") : t("非项目任务")}` : record.projectId ? t("项目会话") : record.pinned ? t("置顶会话") : t("ChatGPT");
+    const sub = props.source === "codex" ? `${record.preview ? `${record.preview} · ` : ""}${isProjectTask(record, folderExclusions) ? t("项目任务") : t("非项目任务")}` : record.projectId ? t("项目会话") : record.pinned ? t("置顶会话") : t("ChatGPT");
     return <div className={`row ${selected.has(record.id) ? "selected" : ""} ${focusId === record.id ? "focused" : ""}`} key={record.id} onClick={() => { if (selectableRow && !busy) toggleOne(record.id); }} onContextMenu={(event) => { if (!props.onProjectMove) return; event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY, record }); }} onDoubleClick={() => void props.onOpen(record)}>
       <label className="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => toggleOne(record.id)}/><span></span></label>
       <button type="button" className="row-main" onFocus={() => setFocusId(record.id)} onKeyDown={(event) => {
@@ -240,6 +243,8 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
           <div className="submenu">{props.projects.length ? props.projects.map((project) => <button type="button" key={project.id} onClick={() => runProjectMove(project.id)}>{project.name}</button>) : <button type="button" className="submenu-empty" disabled={props.projectsLoading} onClick={() => props.onReloadProjects?.()}>{props.projectsLoading ? t("正在加载项目…") : t("没有项目，点击重试")}</button>}</div>
         </div>
         {menu.record.projectId && <button type="button" onClick={() => runProjectMove(null)}>{t("移出项目")}</button>}
+        {props.source === "codex" && !menu.record.projectId && isFolderGrouped(menu.record) && !folderExclusions.has(menu.record.id) && <button type="button" onClick={() => runFolderToggle(true)}>{t("移出文件夹")}</button>}
+        {props.source === "codex" && folderExclusions.has(menu.record.id) && <button type="button" onClick={() => runFolderToggle(false)}>{t("恢复文件夹分组")}</button>}
       </div>}
     </div>
   </section>;
