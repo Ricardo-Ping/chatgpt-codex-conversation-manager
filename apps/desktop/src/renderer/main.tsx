@@ -129,7 +129,7 @@ function ChatGptWorkspace({ bridge, state, onState, kind, onKind, onCounts }: { 
 function ConnectionCard() {
   const directory = useExtensionDirectory();
   return <section className="connection-card"><div className="connection-art">↔</div><p className="eyebrow">{t("安全浏览器桥接")}</p><h1>{t("复用浏览器中的 ChatGPT 登录")}</h1><p>{t("无需在管理器中再次登录。在 Chrome/Edge 中加载配套扩展后即会自动完成配对，无需其他操作；也可以点击浏览器工具栏中的扩展，再点“一键连接桌面管理器”。Cookie 和访问令牌始终留在浏览器。")}</p>
-    <ExtensionPath directory={directory} />
+    <ExtensionPath label={t("扩展目录")} value={directory} />
     <p className="extension-hint">{t("首次使用：在 Chrome/Edge 打开 chrome://extensions，开启“开发者模式”，点击“加载已解压的扩展程序”，选择上面的扩展目录。")}</p>
     <div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>{t("打开扩展目录")}</button><button onClick={() => void window.conversationManager.chatgpt.openChatGpt()}>{t("打开 ChatGPT")}</button></div>
   </section>;
@@ -141,12 +141,12 @@ function useExtensionDirectory(): string {
   return directory;
 }
 
-function ExtensionPath({ directory }: { directory: string }) {
+function ExtensionPath({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
-  if (!directory) return null;
+  if (!value) return null;
   return <div className="extension-path">
-    <div className="extension-path-head"><span>{t("扩展目录")}</span><button type="button" onClick={() => void navigator.clipboard.writeText(directory).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}>{copied ? t("已复制") : t("复制路径")}</button></div>
-    <code>{directory}</code>
+    <div className="extension-path-head"><span>{label}</span><button type="button" onClick={() => void navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}>{copied ? t("已复制") : t("复制路径")}</button></div>
+    <code>{value}</code>
   </div>;
 }
 
@@ -278,9 +278,9 @@ function Settings({ version, lang, onLanguage, onCodexStatus }: { version: strin
   const changeTheme = (value: ThemePreference) => { setTheme(value); void window.conversationManager.theme.set(value); };
   return <section className="settings"><p className="eyebrow">Conversation Manager v{version}</p><h1>{t("设置与隐私")}</h1><div className="settings-grid">
     <article><h2>{t("外观")}</h2><p>{t("界面默认跟随系统深色模式自动切换，也可以手动固定为浅色或深色。")}</p><div className="card-actions"><Segmented value={theme} options={[["system", t("跟随系统")], ["light", t("浅色")], ["dark", t("深色")]] as Array<[ThemePreference, string]>} onChange={changeTheme} aria-label={t("外观")}/></div><p style={{ marginTop: 12 }}>{t("语言 / Language")}</p><div className="card-actions"><Segmented value={lang} options={[["zh", "中文"], ["en", "English"]] as Array<[Lang, string]>} onChange={onLanguage} aria-label={t("语言 / Language")}/></div></article>
-    <article><h2>{t("浏览器桥接")}</h2><p>{bridge?.connected ? `${t("已连接")}${bridge.extensionVersion && bridge.extensionVersion !== version ? ` · ${t("扩展 v{ext} · 需重载", { ext: bridge.extensionVersion })}` : ""}` : bridge?.paired ? t("已配对，等待浏览器") : t("尚未配对")}</p>{!bridge?.connected && <p>{t("无需手动配对：桌面端运行时，浏览器扩展会自动完成连接。")}</p>}{pairMessage && <p className="pair-feedback">{pairMessage}</p>}<ExtensionPath directory={extensionDirectory} /><div className="card-actions"><button onClick={() => { setPairMessage(t("正在清除…")); void window.conversationManager.chatgpt.clearPairing().then((value) => { setBridge(value); setPairMessage(t("已清除配对。桌面端运行时，扩展会在后台自动重新配对。")); }); }}>{t("清除配对")}</button><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>{t("打开扩展目录")}</button></div></article>
+    <article><h2>{t("浏览器桥接")}</h2><p>{bridge?.connected ? `${t("已连接")}${bridge.extensionVersion && bridge.extensionVersion !== version ? ` · ${t("扩展 v{ext} · 需重载", { ext: bridge.extensionVersion })}` : ""}` : bridge?.paired ? t("已配对，等待浏览器") : t("尚未配对")}</p>{!bridge?.connected && <p>{t("无需手动配对：桌面端运行时，浏览器扩展会自动完成连接。")}</p>}{pairMessage && <p className="pair-feedback">{pairMessage}</p>}<ExtensionPath label={t("扩展目录")} value={extensionDirectory} /><div className="card-actions"><button onClick={() => { setPairMessage(t("正在清除…")); void window.conversationManager.chatgpt.clearPairing().then((value) => { setBridge(value); setPairMessage(t("已清除配对。桌面端运行时，扩展会在后台自动重新配对。")); }); }}>{t("清除配对")}</button><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>{t("打开扩展目录")}</button></div></article>
     <article><h2>{t("ChatGPT 缓存")}</h2><p>{cache ? `${t("{n} 条记录", { n: cache.records })} · ${formatBytes(cache.bytes)}${cache.lastSyncedAt ? ` · ${t("{t}同步", { t: relativeTime(cache.lastSyncedAt) })}` : ""}${cache.lastFullSyncedAt ? ` · ${t("{t}完整校准", { t: relativeTime(cache.lastFullSyncedAt) })}` : ""}` : t("正在读取…")}</p><div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.clearCache().then(setCache)}>{t("清除缓存")}</button></div></article>
-    <article><h2>{t("Codex 后端")}</h2><p>{codexStatus?.message || t("正在自动检测统一桌面客户端…")}<br/><small>{codexStatus?.command}</small></p><div className="card-actions">{codexStatus?.available === false && <button onClick={() => void window.conversationManager.codex.selectCommand().then(readCodexStatus)}>{t("手动选择（兜底）")}</button>}</div></article>
+    <article><h2>{t("Codex 后端")}</h2><p>{codexStatus?.message || t("正在自动检测统一桌面客户端…")}</p><ExtensionPath label={t("Codex 命令")} value={codexStatus?.command || ""} /><div className="card-actions">{codexStatus?.available === false && <button onClick={() => void window.conversationManager.codex.selectCommand().then(readCodexStatus)}>{t("手动选择（兜底）")}</button>}</div></article>
     <article><h2>{t("自动更新")}</h2><p>{update?.message}</p><label className="toggle"><input type="checkbox" checked={update?.autoUpdate ?? true} onChange={(event) => void window.conversationManager.updates.setAutoUpdate(event.target.checked).then(setUpdate)}/>{t("默认自动检查更新")}</label><div className="card-actions">{update?.autoUpdate === false && <button onClick={() => void window.conversationManager.updates.check()}>{t("立即检查")}</button>}{update?.phase === "available" && !update.canAutoInstall && /Mac/i.test(navigator.platform) && <button onClick={() => void window.conversationManager.updates.download().catch(() => {})}>{t("下载更新")}</button>}{update?.phase === "available" && !update.canAutoInstall && <button onClick={() => void window.conversationManager.updates.openRelease()}>{t("打开下载页")}</button>}{update?.phase === "downloaded" && !update.canAutoInstall && /Mac/i.test(navigator.platform) && <button onClick={() => void window.conversationManager.updates.install().catch(() => {})}>{t("重启安装")}</button>}</div></article>
     <article><h2>{t("隐私边界")}</h2><p>{t("管理器只保存会话标题、ID、时间和状态。Cookie、访问令牌、正文及 Codex 认证文件不会被读取或复制。")}</p></article>
     <article><h2>{t("连接方式")}</h2><p>{t("ChatGPT 会话复用 Chrome/Edge 登录；统一 ChatGPT/Codex 桌面客户端中的 Codex 任务通过自动发现的本机 App Server 读取。两者都不在管理器中重复登录。")}</p></article>

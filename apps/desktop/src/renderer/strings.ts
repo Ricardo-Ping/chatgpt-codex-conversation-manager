@@ -137,6 +137,7 @@ const en: Record<string, string> = {
   "正在读取…": "Reading…",
   "清除缓存": "Clear cache",
   "Codex 后端": "Codex backend",
+  "Codex 命令": "Codex command",
   "已自动连接 ChatGPT/Codex 桌面客户端内置 App Server": "Connected automatically to the bundled App Server of the ChatGPT/Codex desktop client",
   "手动选择（兜底）": "Choose manually (fallback)",
   "自动更新": "Auto-update",
