@@ -57,6 +57,30 @@ See [README.md](README.md) for the default Chinese documentation and [the implem
 
 `v0.6.0` supports Windows x64 and macOS (Apple Silicon) with Chrome or Edge. The extension is distributed as a Release ZIP; Firefox, and direct access to the official ChatGPT desktop client's private chat database are not supported yet.
 
+## macOS installation (Apple Silicon)
+
+> The macOS build is not signed/notarized with an Apple Developer certificate; Gatekeeper may block the first launch. This is expected. Both DMG and ZIP packages are provided — pick either.
+
+### Option 1: DMG (recommended)
+
+1. Download `Conversation-Manager-x.y.z-dmg-arm64.dmg` and open it.
+2. Drag the app into your Applications folder.
+3. First launch: right-click the app and choose "Open", or allow it in System Settings → Privacy & Security.
+
+### Option 2: ZIP
+
+Download `Conversation-Manager-x.y.z-mac-arm64.zip`, extract it, then right-click the app and choose "Open", or allow it in System Settings → Privacy & Security.
+
+### Option 3: Command line (no Gatekeeper prompt)
+
+Files downloaded with `curl` carry no quarantine flag and open directly:
+
+```bash
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.6.0/Conversation-Manager-0.6.0-mac-arm64.zip"
+```
+
+- Load the companion browser extension and it auto-pairs within 30 seconds; `thread/read` export requires an open chatgpt.com tab.
+
 ## License
 
 MIT

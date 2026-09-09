@@ -66,10 +66,21 @@ pnpm package:win
 
 ## macOS 安装说明（Apple Silicon）
 
-> 当前 macOS 包未做 Apple Developer 签名与公证，首次打开可能被 Gatekeeper 拦截，属正常现象。
+> 当前 macOS 包未做 Apple Developer 签名与公证，首次打开可能被 Gatekeeper 拦截，属正常现象。提供 dmg 与 zip 两种安装包，任选其一。
 
-- **方式一（图形界面）**：下载 `Conversation-Manager-x.y.z-mac-arm64.zip` 解压，右键点击应用选择「打开」确认；或在「系统设置 → 隐私与安全性」中点击「仍要打开」。
-- **方式二（命令行，推荐）**：`curl` 下载的文件不携带隔离标记，可直接打开：
+### 方式一：DMG 安装（推荐）
+
+1. 下载 `Conversation-Manager-x.y.z-dmg-arm64.dmg` 并打开。
+2. 在弹出的窗口中将应用拖入「Applications」文件夹。
+3. 首次打开：右键点击应用选择「打开」确认；或在「系统设置 → 隐私与安全性」中点击「仍要打开」。
+
+### 方式二：ZIP 解压
+
+下载 `Conversation-Manager-x.y.z-mac-arm64.zip` 解压，右键点击应用选择「打开」确认；或在「系统设置 → 隐私与安全性」中点击「仍要打开」。
+
+### 方式三：命令行下载 zip（不触发 Gatekeeper）
+
+`curl` 下载的文件不携带隔离标记，解压后可直接打开：
 
 ```bash
 curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.6.0/Conversation-Manager-0.6.0-mac-arm64.zip"
