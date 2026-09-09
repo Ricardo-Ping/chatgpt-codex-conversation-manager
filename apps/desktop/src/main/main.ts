@@ -52,6 +52,9 @@ function requireState(value: unknown): CachedConversation["state"] { if (value !
 let logUnsubscribe: (() => void) | null = null;
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({ width: 1280, height: 820, minWidth: 760, minHeight: 560, title: "Conversation Manager", autoHideMenuBar: true, backgroundColor: nativeTheme.shouldUseDarkColors ? "#0c181b" : "#f4f8f7", webPreferences: { preload: join(__dirname, "..", "..", "src", "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  // 界面内点击的网页链接一律交给系统浏览器，防止应用窗口被导航走
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith("http")) void shell.openExternal(url).catch(() => {}); return { action: "deny" }; });
+  mainWindow.webContents.on("will-navigate", (event, url) => { event.preventDefault(); if (url.startsWith("http")) void shell.openExternal(url).catch(() => {}); });
   await mainWindow.loadFile(join(__dirname, "..", "renderer", "index.html"), { query: { lang: LANG } }); mainWindow.on("closed", () => { mainWindow = null; });
   if (logUnsubscribe) logUnsubscribe();
   logUnsubscribe = onLogLine((line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("log:appended", line); });

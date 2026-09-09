@@ -41,6 +41,7 @@ export function renderMarkdown(text: string): string {
     const highlighted = languageClass && hljs.getLanguage(languageClass) ? hljs.highlight(raw, { language: languageClass }) : null;
     if (highlighted) { code.innerHTML = highlighted.value; code.classList.add("hljs"); }
   });
+  container.querySelectorAll("a").forEach((link) => { link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); });
   return container.innerHTML;
 }
 
