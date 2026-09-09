@@ -49,11 +49,11 @@ export function renderMarkdown(text: string): string {
 const ROLE_KEYS: Array<[RegExp, string]> = [[/user/i, "用户"], [/reason|think/i, "思考"], [/agent|assistant/i, "助手"], [/tool/i, "工具"]];
 function roleLabel(role: string): string { for (const [pattern, key] of ROLE_KEYS) if (pattern.test(role)) return t(key); return t("工具"); }
 
-export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; onClose(): void; onOpenExternal(): void }) {
+export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; subtitle?: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; onClose(): void; onOpenExternal(): void }) {
   const rendered = useMemo(() => props.messages.map((message) => ({ role: message.role, html: renderMarkdown(message.text) })), [props.messages]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [copiedAll, setCopiedAll] = useState(false);
-  useEffect(() => { const root = bodyRef.current; if (root) root.scrollTop = 0; }, [props.title, props.messages]);
+  useEffect(() => { const root = bodyRef.current; if (root) root.scrollTop = 0; }, [props.title, props.subtitle, props.messages]);
   useEffect(() => {
     const root = bodyRef.current; if (!root || props.loading) return;
     root.querySelectorAll("pre").forEach((pre) => {
@@ -71,7 +71,7 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
   const copyAll = () => { const markdown = props.messages.map((message) => `## ${roleLabel(message.role)}\n\n${message.text}`).join("\n\n"); void navigator.clipboard.writeText(markdown).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); }); };
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
-      <strong title={props.title}>{props.title}</strong>
+      <strong title={props.subtitle ? `${props.title} · ${props.subtitle}` : props.title}>{props.title}</strong>
       {!props.loading && !props.error && <small className="viewer-count">{t("{n} 条消息", { n: props.messages.length })}</small>}
       {!props.loading && !props.error && props.messages.length > 0 && <button type="button" onClick={copyAll}>{copiedAll ? t("已复制全文") : t("复制全文")}</button>}
       <button type="button" onClick={props.onOpenExternal}>{props.externalLabel}</button>

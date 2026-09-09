@@ -236,7 +236,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
           ? <div className="empty"><strong>{props.source === "chatgpt" ? t("还没有同步过会话") : t("还没有读取到任务")}</strong><small>{props.emptyHint}</small>{props.refreshable && <button onClick={() => void runRefresh()}>{t("完整刷新")}</button>}</div>
           : <div className="empty"><strong>{t("当前筛选下没有记录")}</strong><small>{t("换个搜索关键词，或放宽时间范围再试。")}</small><button onClick={() => { setQuery(""); setAge("all"); }}>{t("清除筛选")}</button></div>)}
       </div>
-      {viewer && <ConversationViewerPanel title={viewer.title} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在终端打开") : t("在浏览器打开")} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} />}
+      {viewer && <ConversationViewerPanel title={viewer.title} subtitle={props.source === "codex" ? viewer.record.cwd ?? undefined : undefined} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在终端打开") : t("在浏览器打开")} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} />}
       </div>
       <div className="actionbar">
         <div><strong>{t("已选 {n} 条", { n: selected.size })}</strong><span>{props.state === "scheduled" ? t("已安排会话请在 ChatGPT 官方页面管理") : props.writable ? t("操作只影响当前筛选与选择") : t("只读状态")}</span></div>
@@ -301,6 +301,8 @@ function formatBytes(value: number): string { return value < 1024 ? `${value} B`
 function message(error: unknown): string { return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error:\s*/, ""); }
 function friendlyError(error: unknown): string {
   const text = message(error);
-  return /request timed out/i.test(text) ? t("同步或操作超时：浏览器可能正在休眠或网络较慢，请稍后点击“完整刷新”重试。") : text;
+  if (/request timed out/i.test(text)) return t("同步或操作超时：浏览器可能正在休眠或网络较慢，请稍后点击“完整刷新”重试。");
+  if (/unsupported bridge command/i.test(text)) return t("浏览器扩展版本过旧，请在 chrome://extensions 中重新加载扩展后重试。");
+  return text;
 }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
