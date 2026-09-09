@@ -64,6 +64,19 @@ pnpm package:win
 
 详细实施与恢复记录见 [docs/conversation-manager-implementation-plan.md](docs/conversation-manager-implementation-plan.md)。英文说明见 [README.en.md](README.en.md)。
 
+## macOS 安装说明（Apple Silicon）
+
+> 当前 macOS 包未做 Apple Developer 签名与公证，首次打开可能被 Gatekeeper 拦截，属正常现象。
+
+- **方式一（图形界面）**：下载 `Conversation-Manager-x.y.z-mac-arm64.zip` 解压，右键点击应用选择「打开」确认；或在「系统设置 → 隐私与安全性」中点击「仍要打开」。
+- **方式二（命令行，推荐）**：`curl` 下载的文件不携带隔离标记，可直接打开：
+
+```bash
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.6.0/Conversation-Manager-0.6.0-mac-arm64.zip"
+```
+
+- 加载浏览器扩展后 30 秒内自动配对；`thread/read` 内容读取需要在 chatgpt.com 页面打开的状态下使用。
+
 ## 语言
 
 应用内置中英双语，默认跟随安装语言显示中文。在「设置 → 外观」中可随时切换中文/English，选择持久化保存；自动更新保持在同一更新通道，切换语言不会影响版本更新。

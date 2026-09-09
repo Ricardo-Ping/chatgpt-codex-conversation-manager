@@ -55,7 +55,7 @@ See [README.md](README.md) for the default Chinese documentation and [the implem
 
 ## Current limits
 
-`v0.5.2` supports Windows x64 with Chrome or Edge, plus an unsigned macOS (Apple Silicon) preview. The extension is distributed as a Release ZIP; Firefox, and direct access to the official ChatGPT desktop client's private chat database are not supported yet.
+`v0.6.0` supports Windows x64 and macOS (Apple Silicon) with Chrome or Edge. The extension is distributed as a Release ZIP; Firefox, and direct access to the official ChatGPT desktop client's private chat database are not supported yet.
 
 ## License
 

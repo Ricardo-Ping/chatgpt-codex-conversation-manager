@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm --filter @conversation-manager/desktop exec electron-builder --win nsis portable --publish never
+      - name: Package bridge extension
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-bridge.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-artifacts
+          path: |
+            release/Conversation-Manager-*.exe
+            release/Conversation-Manager-*.exe.blockmap
+            release/latest.yml
+            release/Conversation-Manager-Bridge-*.zip
+            release/Conversation-Manager-Bridge-*.zip.sha256
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Package macOS targets
+        run: pnpm --filter @conversation-manager/desktop exec electron-builder --mac --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-artifacts
+          path: |
+            release/Conversation-Manager-*.dmg
+            release/Conversation-Manager-*-mac-*.zip
+          if-no-files-found: error
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: win-artifacts
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-artifacts
+          path: release
+      - name: Verify tag matches package version
+        run: |
+          pkg_version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${pkg_version}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package version v${pkg_version}" >&2
+            exit 1
+          fi
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          notes="docs/releases/${tag}.md"
+          assets=$(ls release/Conversation-Manager-* release/latest.yml release/SHA256SUMS.txt | tr '\n' ' ')
+          extra=()
+          [ -f "$notes" ] && extra+=(--notes-file "$notes") || extra+=(--generate-notes)
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" ${assets} --clobber
+          else
+            gh release create "$tag" ${assets} --title "Conversation Manager $tag" --verify-tag "${extra[@]}"
+          fi
