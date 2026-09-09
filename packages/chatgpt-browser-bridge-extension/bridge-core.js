@@ -164,13 +164,34 @@
         if (message && message.content && !message.hidden) {
           const role = message.author?.role || "system";
           const parts = Array.isArray(message.content.parts) ? message.content.parts : [];
-          const text = parts.filter((part) => typeof part === "string").join("\n").trim();
+          const segments = [];
+          for (const part of parts) {
+            if (typeof part === "string") { if (part.trim()) segments.push(part); continue; }
+            const pointer = part && typeof part === "object" ? part.asset_pointer : null;
+            if (typeof pointer === "string" && pointer.startsWith("file-service://")) segments.push(`![image](${pointer})`);
+          }
+          const text = segments.join("\n\n").trim();
           if (text && role !== "system") messages.push({ role, at: typeof message.create_time === "number" ? message.create_time * 1000 : null, text });
         }
         (node.children || []).forEach((child) => visit(child, depth + 1));
       };
       visit(root, 0);
+      await this.#resolveImageAssets(account.rawId, messages, signal);
       return { id, title: typeof data.title === "string" ? data.title : "", messages };
+    }
+    async #resolveImageAssets(accountId, messages, signal) {
+      const pointers = new Set();
+      for (const message of messages) for (const match of message.text.matchAll(/!\[image\]\((file-service:\/\/[^)\s]+)\)/g)) pointers.add(match[1]);
+      if (!pointers.size) return;
+      const resolved = new Map();
+      await mapLimit([...pointers], 3, async (pointer) => {
+        try {
+          const payload = await this.request(`/backend-api/files/${encodeURIComponent(pointer.replace("file-service://", ""))}/download`, accountId, { signal });
+          const url = payload && typeof payload === "object" ? payload.download_url : null;
+          if (typeof url === "string" && url.startsWith("http")) resolved.set(pointer, url);
+        } catch {}
+      });
+      for (const message of messages) for (const [pointer, url] of resolved) message.text = message.text.split(`![image](${pointer})`).join(`![image](${url})`);
     }
     async batch(payload) {
       const account = await this.resolveAccount(payload.accountKey); const action = payload.action; const ids = [...new Set(payload.ids || [])];
