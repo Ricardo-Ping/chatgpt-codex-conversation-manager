@@ -25,7 +25,10 @@
     "@conversation-manager/chatgpt-bridge-server": "workspace:*",
     "@conversation-manager/codex-app-server-adapter": "workspace:*",
     "@conversation-manager/conversation-domain": "workspace:*",
+    "dompurify": "^3.4.15",
     "electron-updater": "6.8.9",
+    "highlight.js": "^11.12.0",
+    "marked": "^18.0.12",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -64,7 +67,15 @@
       {
         "from": "../../packages/chatgpt-browser-bridge-extension",
         "to": "chatgpt-browser-bridge-extension",
-        "filter": ["manifest.json", "background.js", "content.js", "bridge-core.js", "popup.html", "popup.css", "popup.js"]
+        "filter": [
+          "manifest.json",
+          "background.js",
+          "content.js",
+          "bridge-core.js",
+          "popup.html",
+          "popup.css",
+          "popup.js"
+        ]
       }
     ],
     "win": {

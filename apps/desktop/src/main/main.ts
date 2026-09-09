@@ -14,7 +14,7 @@ import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, su
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
 import { loadLanguagePreference, saveLanguagePreference, type AppLanguage } from "./language.js";
 import { MAIN_STRINGS } from "./strings.js";
-import { chatgptTranscriptMarkdown, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, safeFileName } from "./export.js";
+import { chatgptTranscriptMarkdown, codexMessagesFromTurns, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, safeFileName } from "./export.js";
 
 const { autoUpdater } = electronUpdater;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -253,6 +253,19 @@ ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event)
 ipcMain.handle("codex:list", async (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return codex.list({ cursor: typeof input.cursor === "string" ? input.cursor : null, limit: 100, archived: input.archived === true, searchTerm: typeof input.searchTerm === "string" ? input.searchTerm.slice(0, 200) : null, full: input.full === true }); });
 ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); const id = requireId(value); try { const child = process.platform === "win32" ? spawn("powershell.exe", ["-NoExit", "-EncodedCommand", Buffer.from(`& '${codexCommand.replaceAll("'", "''")}' resume '${id}'`, "utf16le").toString("base64")], { detached: true, stdio: "ignore", windowsHide: false }) : spawn(codexCommand, ["resume", id], { detached: true, stdio: "ignore" }); child.unref(); return { opened: true }; } catch { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; } });
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || M().unnamedTask, derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
+ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const id = requireId(input.id);
+  const result = await bridge.request("read", { accountKey, id }, 300_000); if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
+  const payload = result.payload as { title?: unknown; messages?: unknown };
+  const rows = Array.isArray(payload?.messages) ? payload.messages : [];
+  const messages = rows.map((row) => { const item = row && typeof row === "object" ? row as Record<string, unknown> : {}; return { role: typeof item.role === "string" ? item.role.slice(0, 32) : "other", at: typeof item.at === "number" ? item.at : null, text: typeof item.text === "string" ? item.text.slice(0, 500_000) : "" }; }).filter((item) => item.text.trim().length > 0);
+  return { title: typeof payload?.title === "string" ? payload.title.slice(0, 200) : "", messages };
+});
+ipcMain.handle("codex:read-thread", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const id = requireId(input.threadId);
+  const payload = await codex.readThread(id);
+  return { messages: codexMessagesFromTurns(codexTurnsFromPayload(payload)) };
+});
 ipcMain.handle("codex:projects", async (event) => { requireRenderer(event); return { projects: await codex.listProjects() }; });
 ipcMain.handle("codex:set-project", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const threadId = requireId(input.threadId);

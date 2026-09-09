@@ -76,6 +76,22 @@ export function codexTurnsFromPayload(payload: unknown): Array<Record<string, un
   return Array.isArray(turns) ? turns.filter((turn): turn is Record<string, unknown> => Boolean(turn && typeof turn === "object")) : [];
 }
 
+export function codexMessagesFromTurns(turns: Array<Record<string, unknown>>): ExportMessage[] {
+  const messages: ExportMessage[] = [];
+  for (const turn of turns) {
+    const items = Array.isArray(turn.items) ? turn.items : [];
+    for (const rawItem of items) {
+      const item = rawItem && typeof rawItem === "object" ? rawItem : {};
+      const type = typeof item.type === "string" ? item.type : "";
+      const text = turnText(item);
+      if (!text) continue;
+      const role = type.includes("reason") ? "reasoning" : type.includes("user") ? "user" : type.includes("agent") || type.includes("assistant") ? "assistant" : "tool";
+      messages.push({ role, at: null, text });
+    }
+  }
+  return messages;
+}
+
 export function codexTranscriptMarkdown(thread: CodexThreadMeta, turns: Array<Record<string, unknown>>, exportedAt: number, lang: ExportLang = "zh"): string {
   const l = labels(lang);
   const header = [

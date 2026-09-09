@@ -14,7 +14,7 @@ declare global {
     setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
     dialog: { pickDirectory(payload?: { defaultPath?: string }): Promise<{ directory: string | null }> };
     chatgpt: {
-      state(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; showExtension(): Promise<string>; extensionDirectory(): Promise<string>;
+      state(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; readConversation(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; showExtension(): Promise<string>; extensionDirectory(): Promise<string>;
       accounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;
       cachedAccounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;
       projects(accountKey: string): Promise<{ projects: Array<{ id: string; name: string }> }>;
@@ -31,6 +31,7 @@ declare global {
       status(): Promise<{ available: boolean; message: string; command: string }>;
       selectCommand(): Promise<{ selected: boolean; command: string }>;
       list(params: { cursor?: string | null; archived?: boolean; searchTerm?: string; full?: boolean }): Promise<ThreadListResponse>;
+      read(threadId: string): Promise<{ messages: Array<{ role: string; at: number | null; text: string }> }>;
       projects(): Promise<{ projects: Array<{ id: string; name: string }> }>;
       setProject(threadId: string, projectId: string | null): Promise<void>;
       open(threadId: string): Promise<{ opened: boolean; copied?: boolean }>;
