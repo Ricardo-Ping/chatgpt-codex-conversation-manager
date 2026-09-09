@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     read: () => ipcRenderer.invoke("log:read"),
     clear: () => ipcRenderer.invoke("log:clear"),
     save: () => ipcRenderer.invoke("log:save"),
+    info: (message) => ipcRenderer.invoke("log:info", message),
     onLine: (callback) => { if (typeof callback !== "function") return () => {}; const listener = (_event, line) => callback(line); ipcRenderer.on("log:appended", listener); return () => ipcRenderer.removeListener("log:appended", listener); }
   }),
   theme: Object.freeze({

@@ -83,7 +83,7 @@ export class ChatGptBridgeServer {
       if (req.method === "GET" && (req.url === "/v1/commands" || req.url?.startsWith("/v1/commands?"))) {
         const waitSeconds = Number(new URLSearchParams(req.url?.split("?")[1] ?? "").get("wait") ?? 0);
         if (!this.#commands.length && Number.isFinite(waitSeconds) && waitSeconds > 0) {
-          const deadline = Date.now() + Math.min(waitSeconds, 25) * 1000;
+          const deadline = Date.now() + Math.min(waitSeconds, 10) * 1000;
           while (!this.#commands.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
         }
         return json(res, 200, this.#commands.splice(0, 20));

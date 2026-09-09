@@ -46,7 +46,7 @@ async function startPolling() {
       if (!bridgeSecret) break;
       try {
         const authorization = "Bearer " + bridgeSecret;
-        const commandsUrl = `${BASE}/commands?wait=20`;
+        const commandsUrl = `${BASE}/commands?wait=10`;
         const response = await fetch(commandsUrl, { headers: { Authorization: authorization, "X-Extension-Version": chrome.runtime.getManifest().version } });
         if (response.status === 401) { await chrome.storage.local.remove("bridgeSecret"); break; }
         if (response.ok) { delay = 1500; for (const job of await response.json()) void relayJob(job, bridgeSecret); }

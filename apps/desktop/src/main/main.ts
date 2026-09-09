@@ -224,6 +224,7 @@ async function loadThemePreference(): Promise<ThemePreference> { try { const raw
 ipcMain.handle("theme:get", (event) => { requireRenderer(event); return nativeTheme.themeSource; });
 ipcMain.handle("theme:set", async (event, value) => { requireRenderer(event); if (value !== "system" && value !== "light" && value !== "dark") throw new Error("Invalid theme preference"); nativeTheme.themeSource = value; await mkdir(app.getPath("userData"), { recursive: true }); await writeFile(join(app.getPath("userData"), "theme-preferences.json"), `${JSON.stringify({ theme: value }, null, 2)}\n`, "utf8"); return nativeTheme.themeSource; });
 ipcMain.handle("log:read", async (event) => { requireRenderer(event); return readLogs(); });
+ipcMain.handle("log:info", (event, message) => { requireRenderer(event); logInfo(typeof message === "string" ? message.slice(0, 300) : "invalid log message"); return true; });
 ipcMain.handle("log:clear", async (event) => { requireRenderer(event); await clearLogs(); return true; });
 ipcMain.handle("log:save", async (event) => {
   requireRenderer(event); if (!mainWindow) throw new Error(M().windowUnavailable);

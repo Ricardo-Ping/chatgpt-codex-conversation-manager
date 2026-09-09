@@ -35,7 +35,7 @@ declare global {
       runBatch(action: "archive" | "unarchive" | "delete", ids: string[], confirmationToken?: string): Promise<BatchResult>;
       exportSessions(payload: { directory: string; items: Array<{ id: string; title: string; preview: string; cwd: string | null }> }): Promise<{ saved: number; failed: Array<{ id: string; message: string }>; directory: string }>;
     };
-    logs: { read(): Promise<string>; clear(): Promise<boolean>; save(): Promise<{ saved: boolean; path?: string }>; onLine(callback: (line: string) => void): () => void };
+    logs: { read(): Promise<string>; clear(): Promise<boolean>; save(): Promise<{ saved: boolean; path?: string }>; info(message: string): Promise<void>; onLine(callback: (line: string) => void): () => void };
     language: { get(): Promise<"zh" | "en">; set(value: "zh" | "en"): Promise<"zh" | "en"> };
     theme: { get(): Promise<ThemePreference>; set(value: ThemePreference): Promise<ThemePreference> };
     updates: { getState(): Promise<UpdateState>; setAutoUpdate(enabled: boolean): Promise<UpdateState>; check(): Promise<UpdateState>; install(): Promise<void>; openRelease(): Promise<void>; onState(callback: (state: UpdateState) => void): () => void };
