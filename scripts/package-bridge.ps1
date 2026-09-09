@@ -26,8 +26,6 @@ $manifestText = ([regex]'("version"\s*:\s*")[^"]*(")').Replace($manifestText, ('
 if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $archive -CompressionLevel Optimal
 Remove-Item -LiteralPath $stage -Recurse -Force
-$hash = Get-Sha256 $archive
-[System.IO.File]::WriteAllText("$archive.sha256", "$hash  $(Split-Path -Leaf $archive)`n", [System.Text.UTF8Encoding]::new($false))
 
 $releaseFiles = @(
   "Conversation-Manager-$version-setup-x64.exe",
