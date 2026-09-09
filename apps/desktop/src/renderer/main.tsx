@@ -47,6 +47,7 @@ function App() {
   const setWorkspaceState = useCallback((value: ConversationState) => setWorkspaceStates((old) => ({ ...old, [page === "codex" ? "codex" : "chatgpt"]: value })), [page]);
   useEffect(() => { void window.conversationManager.appVersion().then(setVersion); }, []);
   useEffect(() => { const read = () => void window.conversationManager.chatgpt.state().then(setBridge); read(); const timer = window.setInterval(read, 3000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => { void window.conversationManager.codex.status().then((value) => { setCodexReady(value.available); reportCodexStatus(value.available); }).catch(() => setCodexReady(false)); }, [reportCodexStatus]);
   const extensionMismatch = Boolean(bridge.extensionVersion && version && bridge.extensionVersion !== version);
   const bridgeDot = extensionMismatch ? "warn" : bridge.connected ? "ok" : bridge.paired ? "warn" : "off";
   const bridgeText = extensionMismatch ? t("扩展 v{ext} · 需重载", { ext: bridge.extensionVersion ?? "" }) : bridge.connected ? t("已连接") : bridge.paired ? t("等待浏览器") : t("未配对");
