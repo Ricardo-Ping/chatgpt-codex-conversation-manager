@@ -71,7 +71,7 @@ async function relayJob(job, secret) {
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let relayQueue = Promise.resolve();
 let fastQueue = Promise.resolve();
-const FAST_COMMANDS = new Set(["batch", "cancel", "status"]);
+const FAST_COMMANDS = new Set(["batch", "cancel", "status", "projects"]);
 function enqueueRelay(job, secret) {
   // 同步与导出等慢速读命令串行转发，避免在 ChatGPT 端并发竞争导致超时；
   // 批量变更/取消等短命令走快速通道立即执行，防止排在长同步后面排队超时

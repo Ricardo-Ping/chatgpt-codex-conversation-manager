@@ -112,8 +112,8 @@
       return discovered;
     }
     async listProjects(accountId, signal) {
-      const entries = await this.loadProjectEntries(accountId, signal);
-      return [...entries].filter(([, name]) => Boolean(name)).map(([id, name]) => ({ id, name }));
+      const entries = await this.loadProjectEntries(accountId, signal, true);
+      return [...entries].map(([id, name]) => ({ id, name: name || id }));
     }
     async loadConversations(accountId, archived, signal, checkpoint) {
       const records = []; let offset = 0;
