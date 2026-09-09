@@ -21,6 +21,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const RELEASE_URL = "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases";
 const CHATGPT_URL = "https://chatgpt.com/";
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const BRIDGE_TIMEOUT_LONG_MS = 300_000;
+const BRIDGE_TIMEOUT_PROJECTS_MS = 120_000;
 let codexCommand = "codex";
 let codex = new CodexAppServer(codexCommand);
 let codexConnection: Promise<boolean> | null = null;
@@ -156,7 +158,7 @@ ipcMain.handle("chatgpt:extension-directory", (event) => { requireRenderer(event
 ipcMain.handle("chatgpt:accounts", async (event) => { requireRenderer(event); const result = await bridge.request("accounts", {}); if (!result.ok) throw new Error(result.error?.message || M().accountReadFailed); return sanitizeAccounts(result.payload); });
 ipcMain.handle("chatgpt:projects", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey);
-  const result = await bridge.request("projects", { accountKey }, 120_000); if (!result.ok) throw new Error(result.error?.message || M().accountReadFailed);
+  const result = await bridge.request("projects", { accountKey }, BRIDGE_TIMEOUT_PROJECTS_MS); if (!result.ok) throw new Error(result.error?.message || M().accountReadFailed);
   const payload = result.payload as { projects?: unknown }; const rows = Array.isArray(payload?.projects) ? payload.projects : [];
   return { projects: rows.slice(0, 300).map((row) => { const item = row && typeof row === "object" ? row as Record<string, unknown> : {}; if (typeof item.id !== "string" || !item.id.startsWith("g-p-") || item.id.length > 128) return null; const name = typeof item.name === "string" && item.name.trim() ? item.name.trim().slice(0, 100) : item.id; return { id: item.id, name }; }).filter((row): row is { id: string; name: string } => Boolean(row)) };
 });
@@ -164,7 +166,7 @@ ipcMain.handle("chatgpt:cached-accounts", (event) => { requireRenderer(event); r
 ipcMain.handle("chatgpt:cache", (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return indexStore.read(requireAccount(input.accountKey), requireState(input.state)); });
 ipcMain.handle("chatgpt:list", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const state = requireState(input.state); const label = typeof input.label === "string" ? input.label.slice(0, 100) : "ChatGPT"; const cached = indexStore.read(accountKey, state); const mode = chooseCacheSyncMode(cached, input.full === true);
-  const result = await bridge.request("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, 300_000); if (!result.ok) throw new Error(result.error?.message || M().syncFailed);
+  const result = await bridge.request("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().syncFailed);
   const payload = result.payload as { records?: unknown; full?: boolean; projects?: unknown }; const records = sanitizeRecords(payload.records, state); const projects = sanitizeProjects(payload.projects); const calibrated = mode === "full" || payload.full === true; if (calibrated) await indexStore.replace(accountKey, label, state, records, true, projects); else await indexStore.merge(accountKey, label, state, records, projects); const snapshot = indexStore.read(accountKey, state); return snapshot ? { ...snapshot, syncMode: calibrated ? "full" : "incremental" } : null;
 });
 ipcMain.handle("chatgpt:preview-delete", (event, value) => { requireRenderer(event); const ids = requireIds(value); return { confirmationToken: rememberConfirmation("chatgpt", ids) }; });
@@ -174,7 +176,7 @@ ipcMain.handle("chatgpt:batch", async (event, value) => {
   if (action === "add-to-project" && !projectId) throw new Error(M().projectMissing);
   const operationId = randomUUID(); currentChatBatchId = operationId;
   activeBatchCount += 1;
-  try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId, ...(projectId ? { projectId } : {}) }, 300_000); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; if (action === "add-to-project" || action === "remove-from-project") await indexStore.applyProjectMove(accountKey, succeeded, action === "add-to-project" ? projectId : null); else await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
+  try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId, ...(projectId ? { projectId } : {}) }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; if (action === "add-to-project" || action === "remove-from-project") await indexStore.applyProjectMove(accountKey, succeeded, action === "add-to-project" ? projectId : null); else await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
 });
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
@@ -196,7 +198,7 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
       const item = items[cursor++];
       if (!item) break;
       try {
-        const result = await bridge.request("read", { accountKey, id: item.id }, 300_000);
+        const result = await bridge.request("read", { accountKey, id: item.id }, BRIDGE_TIMEOUT_LONG_MS);
         if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
         const payload = result.payload as { title?: unknown; messages?: unknown };
         const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
@@ -255,7 +257,7 @@ ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); c
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || M().unnamedTask, derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
 ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const id = requireId(input.id);
-  const result = await bridge.request("read", { accountKey, id }, 300_000); if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
+  const result = await bridge.request("read", { accountKey, id }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
   const payload = result.payload as { title?: unknown; messages?: unknown };
   const rows = Array.isArray(payload?.messages) ? payload.messages : [];
   const messages = rows.map((row) => { const item = row && typeof row === "object" ? row as Record<string, unknown> : {}; return { role: typeof item.role === "string" ? item.role.slice(0, 32) : "other", at: typeof item.at === "number" ? item.at : null, text: typeof item.text === "string" ? item.text.slice(0, 500_000) : "" }; }).filter((item) => item.text.trim().length > 0);
