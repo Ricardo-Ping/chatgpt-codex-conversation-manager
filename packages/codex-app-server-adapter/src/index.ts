@@ -73,7 +73,7 @@ export class CodexAppServer {
     child.once("exit", (code) => this.#failAll(new Error(`Codex App Server exited (${code ?? "unknown"})`)));
 
     await this.#requestRaw("initialize", {
-      clientInfo: { name: "conversation-manager", title: "Conversation Manager", version: "0.6.2" },
+      clientInfo: { name: "conversation-manager", title: "Conversation Manager", version: "0.6.3" },
       capabilities: { experimentalApi: true }
     });
     this.#send({ method: "initialized" });
