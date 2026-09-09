@@ -38,12 +38,13 @@ export function groupCodexConversations(records: ManagedConversation[], excluded
 }
 
 export function groupChatGptConversations(records: ManagedConversation[], names: Record<string, string> | undefined): CodexConversationGroup[] | null {
-  if (!names || !Object.keys(names).length) return null;
   const groups = new Map<string, CodexConversationGroup>();
   for (const record of records) {
     if (!record.projectId) continue;
     const key = `project:${record.projectId}`;
-    const group = groups.get(key) ?? { key, name: names[record.projectId] || record.projectId, path: null, records: [] };
+    const named = names?.[record.projectId];
+    const name = named && named.trim() ? named : record.projectId;
+    const group = groups.get(key) ?? { key, name, path: null, records: [] };
     group.records.push(record); groups.set(key, group);
   }
   return groups.size ? [...groups.values()] : null;

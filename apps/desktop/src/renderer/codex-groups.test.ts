@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ManagedConversation } from "@conversation-manager/conversation-domain";
-import { groupCodexConversations, isProjectTask } from "./codex-groups.js";
+import { groupChatGptConversations, groupCodexConversations, isProjectTask } from "./codex-groups.js";
 
 const row = (id: string, cwd?: string, projectId?: string): ManagedConversation => ({ source: "codex", id, title: id, createdAt: null, updatedAt: null, state: "active", cwd, projectId, pinned: false, running: false, current: false, capabilities: ["open"] });
+const chatRow = (id: string, projectId?: string): ManagedConversation => ({ source: "chatgpt", id, title: id, createdAt: null, updatedAt: null, state: "active", projectId, pinned: false, running: false, current: false, capabilities: ["open", "archive", "delete"] });
 
 describe("groupCodexConversations", () => {
   it("groups tasks by working directory and keeps unassigned tasks separate", () => {
@@ -34,5 +35,19 @@ describe("groupCodexConversations", () => {
     expect(groups.map((group) => [group.name, group.records.map((item) => item.id)])).toEqual([["非项目任务", ["a"]], ["beta", ["b"]]]);
     expect(isProjectTask(row("a", "X:\\work\\alpha"), new Set(["a"]))).toBe(false);
     expect(isProjectTask(row("p", "X:\\work\\alpha", "proj-1"), new Set(["p"]))).toBe(true);
+  });
+});
+
+describe("groupChatGptConversations", () => {
+  it("groups work records by project id and prefers known names", () => {
+    const records = [chatRow("a", "g-p-1"), chatRow("b", "g-p-1"), chatRow("c", "g-p-2")];
+    const groups = groupChatGptConversations(records, { "g-p-1": "调研" });
+    expect(groups?.map((group) => [group.name, group.records.map((item) => item.id)])).toEqual([["调研", ["a", "b"]], ["g-p-2", ["c"]]]);
+  });
+
+  it("still groups when project names are missing, and returns null without project ids", () => {
+    const records = [chatRow("a", "g-p-1"), chatRow("b", "g-p-2")];
+    expect(groupChatGptConversations(records, undefined)?.map((group) => group.name)).toEqual(["g-p-1", "g-p-2"]);
+    expect(groupChatGptConversations([chatRow("plain")], { "g-p-1": "X" })).toBeNull();
   });
 });
