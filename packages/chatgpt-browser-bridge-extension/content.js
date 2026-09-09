@@ -10,6 +10,7 @@
       if (message.type === "accounts") return { accounts: await repository.authenticate() };
       if (message.type === "list") { const result = await repository.list({ ...message.payload, requestId: message.requestId }); const currentId = location.pathname.match(/\/c\/([^/?#]+)/)?.[1]; result.records = result.records.map((record) => ({ ...record, current: record.id === currentId })); return result; }
       if (message.type === "batch") return repository.batch({ ...message.payload, requestId: message.payload?.requestId || message.requestId });
+      if (message.type === "projects") return { projects: await repository.listProjects(message.payload?.accountKey) };
       if (message.type === "read") return repository.readConversation(message.payload?.accountKey, message.payload?.id);
       if (message.type === "cancel") { repository.cancel(message.payload?.requestId); return { cancelled: true }; }
       throw new Error("Unsupported bridge command");

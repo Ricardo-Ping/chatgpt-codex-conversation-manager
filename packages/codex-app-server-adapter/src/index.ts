@@ -27,6 +27,11 @@ export interface ThreadListResponse {
   nextCursor: string | null;
 }
 
+export interface CodexProject {
+  id: string;
+  name: string;
+}
+
 type SpawnProcess = (command: string, args: string[]) => ChildProcessWithoutNullStreams;
 type Pending = { resolve(value: unknown): void; reject(error: Error): void; timeout: ReturnType<typeof setTimeout> };
 
@@ -68,8 +73,8 @@ export class CodexAppServer {
     child.once("exit", (code) => this.#failAll(new Error(`Codex App Server exited (${code ?? "unknown"})`)));
 
     await this.#requestRaw("initialize", {
-      clientInfo: { name: "conversation-manager", title: "Conversation Manager", version: "0.6.1" },
-      capabilities: null
+      clientInfo: { name: "conversation-manager", title: "Conversation Manager", version: "0.6.2" },
+      capabilities: { experimentalApi: true }
     });
     this.#send({ method: "initialized" });
     this.#ready = true;
@@ -92,6 +97,27 @@ export class CodexAppServer {
 
   async archive(threadId: string): Promise<void> {
     await this.request("thread/archive", { threadId });
+  }
+
+  async listProjects(limit = 500): Promise<CodexProject[]> {
+    const out: CodexProject[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const page: { data?: Array<{ id?: unknown; name?: unknown }>; nextCursor?: string | null } = await this.request("project/list", { cursor, limit: 100 });
+      for (const project of Array.isArray(page.data) ? page.data : []) {
+        if (typeof project?.id !== "string" || !project.id) continue;
+        const name = typeof project.name === "string" && project.name.trim() ? project.name.trim().slice(0, 100) : project.id;
+        out.push({ id: project.id, name });
+        if (out.length >= limit) return out;
+      }
+      const next: string | null = typeof page.nextCursor === "string" && page.nextCursor ? page.nextCursor : null;
+      if (!next) return out;
+      cursor = next;
+    }
+  }
+
+  async setThreadProject(threadId: string, projectId: string | null): Promise<void> {
+    await this.request("thread/metadata/update", { threadId, projectId: projectId ? projectId : "" });
   }
 
   async readThread(threadId: string): Promise<unknown> {

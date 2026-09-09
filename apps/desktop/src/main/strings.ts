@@ -24,6 +24,26 @@ interface MainStrings {
   noSavedCodexCommand: string;
   chatgptExportSummary: (saved: number, failed: number, directory: string) => string;
   codexExportSummary: (saved: number, failed: number, directory: string) => string;
+  codexConnectedLocal: string;
+  codexConnectedBundled: string;
+  codexNotFound: string;
+  downloadedWaitBatch: string;
+  taskMissing: string;
+  taskStateChanged: string;
+  deleteConfirmationExpired: string;
+  taskRunning: string;
+  syncFailed: string;
+  batchFailed: string;
+  accountReadFailed: string;
+  invalidAccountList: string;
+  unrecognizedAccountList: string;
+  invalidConversationList: string;
+  unrecognizedConversations: (count: number) => string;
+  unnamedTask: string;
+  unnamedConversation: string;
+  projectMissing: string;
+  macUpdateAvailable: (version: string) => string;
+  macInstallNoPermission: string;
 }
 
 const zh: MainStrings = {
@@ -49,7 +69,27 @@ const zh: MainStrings = {
   startupFailed: (detail) => `startup failed: ${detail}`,
   noSavedCodexCommand: "no saved codex command; using default discovery",
   chatgptExportSummary: (saved, failed, directory) => `已保存 ${saved} 个会话文件到 ${directory}${failed ? `，失败 ${failed} 条` : ""}`,
-  codexExportSummary: (saved, failed, directory) => `已保存 ${saved} 个任务文件到 ${directory}${failed ? `，失败 ${failed} 条` : ""}`
+  codexExportSummary: (saved, failed, directory) => `已保存 ${saved} 个任务文件到 ${directory}${failed ? `，失败 ${failed} 条` : ""}`,
+  codexConnectedLocal: "已连接本机 Codex App Server",
+  codexConnectedBundled: "已自动连接 ChatGPT/Codex 桌面客户端内置 App Server",
+  codexNotFound: "未找到 ChatGPT/Codex 桌面客户端或可用的 Codex App Server",
+  downloadedWaitBatch: "更新已下载，将在批量操作完成后自动安装",
+  taskMissing: "任务不存在",
+  taskStateChanged: "任务状态已变化，请重新预览",
+  deleteConfirmationExpired: "删除确认已过期，请重新预览",
+  taskRunning: "运行中的任务不能批量操作",
+  syncFailed: "同步失败",
+  batchFailed: "批量操作失败",
+  accountReadFailed: "无法读取 ChatGPT 账号",
+  invalidAccountList: "浏览器返回了无效账号列表",
+  unrecognizedAccountList: "浏览器返回了无法识别的账号列表",
+  invalidConversationList: "浏览器返回了无效会话列表",
+  unrecognizedConversations: (count) => `浏览器返回了 ${count} 条无法识别的会话记录，已保留本地缓存`,
+  unnamedTask: "未命名任务",
+  unnamedConversation: "未命名会话",
+  projectMissing: "缺少目标项目",
+  macUpdateAvailable: (version) => `发现新版本 v${version}，可下载更新`,
+  macInstallNoPermission: "应用所在目录没有写入权限，无法自动安装；请从下载页手动安装"
 };
 
 const en: MainStrings = {
@@ -75,7 +115,27 @@ const en: MainStrings = {
   startupFailed: (detail) => `startup failed: ${detail}`,
   noSavedCodexCommand: "no saved codex command; using default discovery",
   chatgptExportSummary: (saved, failed, directory) => `Saved ${saved} conversation file(s) to ${directory}${failed ? `, ${failed} failed` : ""}`,
-  codexExportSummary: (saved, failed, directory) => `Saved ${saved} task file(s) to ${directory}${failed ? `, ${failed} failed` : ""}`
+  codexExportSummary: (saved, failed, directory) => `Saved ${saved} task file(s) to ${directory}${failed ? `, ${failed} failed` : ""}`,
+  codexConnectedLocal: "Connected to the local Codex App Server",
+  codexConnectedBundled: "Connected automatically to the bundled App Server of the ChatGPT/Codex desktop client",
+  codexNotFound: "ChatGPT/Codex desktop client or a usable Codex App Server was not found",
+  downloadedWaitBatch: "Update downloaded — it will install automatically once batch operations finish",
+  taskMissing: "Task not found",
+  taskStateChanged: "Task state has changed — preview again",
+  deleteConfirmationExpired: "Delete confirmation expired — preview again",
+  taskRunning: "Running tasks cannot be modified in bulk",
+  syncFailed: "Sync failed",
+  batchFailed: "Batch operation failed",
+  accountReadFailed: "Could not read ChatGPT accounts",
+  invalidAccountList: "The browser returned an invalid account list",
+  unrecognizedAccountList: "The browser returned an unrecognized account list",
+  invalidConversationList: "The browser returned an invalid conversation list",
+  unrecognizedConversations: (count) => `The browser returned ${count} unrecognized conversations; the local cache was kept`,
+  unnamedTask: "Untitled task",
+  unnamedConversation: "Untitled conversation",
+  projectMissing: "Target project is missing",
+  macUpdateAvailable: (version) => `New version v${version} is available`,
+  macInstallNoPermission: "The app folder is not writable, so the update cannot be installed automatically. Install manually from the download page."
 };
 
 export const MAIN_STRINGS: Record<AppLanguage, MainStrings> = { zh, en };

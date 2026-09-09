@@ -111,6 +111,15 @@ button { cursor: pointer; }
 .list-head { position: sticky; top: 0; z-index: 2; align-items: center; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--border); color: var(--text-faint); font-size: 11px; }
 .list-head span:last-child { text-align: right; }
 .row { align-items: start; padding: 9px 16px; border-bottom: 1px solid var(--border-soft); transition: background .15s; cursor: pointer; user-select: none; }
+.context-menu { position: fixed; z-index: 60; min-width: 210px; padding: 6px; display: flex; flex-direction: column; background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--card-shadow-lg); }
+.context-menu > button, .context-sub > button { text-align: left; background: transparent; border: none; padding: 8px 12px; border-radius: 8px; font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.context-menu button:hover { background: var(--row-hover); }
+.context-sub { display: flex; flex-direction: column; }
+.context-sub > button::after { content: "▸"; margin-left: auto; color: var(--text-muted); }
+.context-sub { position: relative; }
+.context-sub .submenu { display: none; position: absolute; left: calc(100% - 4px); top: -6px; min-width: 220px; max-height: 320px; overflow: auto; padding: 6px; background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--card-shadow-lg); }
+.context-sub:hover .submenu, .context-sub:focus-within .submenu { display: flex; flex-direction: column; }
+.submenu-empty { padding: 8px 12px; font-size: 12px; color: var(--text-muted); }
 .row:hover, .row.selected { background: var(--row-hover); }
 .row.focused { box-shadow: inset 3px 0 0 var(--brand-glow); background: var(--row-focus); }
 .check { width: 28px; height: 28px; margin-top: 5px; display: grid; place-items: center; }
@@ -151,9 +160,12 @@ button { cursor: pointer; }
 .connection-card { width: min(620px, calc(100vw - 40px)); margin: calc(50vh - 280px) auto 0; padding: 42px; text-align: center; background: var(--surface); border: 1px solid var(--border-card); border-radius: 24px; box-shadow: var(--card-shadow-lg); }
 .connection-art { width: 66px; height: 66px; border-radius: 20px; margin: 0 auto 18px; display: grid; place-items: center; font-size: 30px; color: white; background: linear-gradient(135deg, var(--brand), #46b7aa); }
 .connection-card > p:not(.eyebrow) { color: var(--text-muted); line-height: 1.65; }
-.pair-code { margin: 22px auto; padding: 14px; width: 210px; border: 1px dashed #6cb9b1; border-radius: 14px; display: grid; background: var(--row-hover); }
-.pair-code span, .pair-code small { font-size: 11px; color: var(--text-muted); }
-.pair-code strong { font-size: 31px; letter-spacing: .18em; color: var(--brand-text); }
+.extension-path { margin: 16px auto 0; width: min(440px, 100%); padding: 10px 14px; border: 1px dashed #6cb9b1; border-radius: 12px; display: grid; gap: 5px; background: var(--row-hover); text-align: left; }
+.extension-path-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.extension-path span { font-size: 11px; color: var(--text-muted); }
+.extension-path code { font-size: 12px; color: var(--text); word-break: break-all; user-select: text; }
+.extension-path button { border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 8px; padding: 2px 10px; font-size: 12px; }
+.extension-hint { margin: 10px auto 0; width: min(440px, 100%); font-size: 12px; color: var(--text-muted); line-height: 1.6; text-align: left; }
 .card-actions { display: flex; justify-content: center; gap: 9px; margin-top: 14px; flex-wrap: wrap; }
 
 /* ---- 设置页 ---- */
@@ -163,7 +175,7 @@ button { cursor: pointer; }
 .settings h2 { font-size: 16px; margin: 0 0 8px; color: var(--heading); }
 .settings article p { color: var(--text-muted); line-height: 1.6; font-size: 13px; }
 .settings .pair-feedback { margin: 4px 0 0; color: var(--brand-text); font-size: 12.5px; line-height: 1.6; }
-.settings .pair-code { margin: 12px 0 2px; width: auto; max-width: 240px; justify-items: center; padding: 10px; }
+.settings .extension-path { margin: 12px 0 2px; width: auto; }
 .toggle { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .settings .log-card { grid-column: 1 / -1; }
 .settings .log-card .card-actions { justify-content: flex-start; }

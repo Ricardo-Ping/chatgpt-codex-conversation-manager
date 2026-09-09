@@ -86,7 +86,7 @@
         const account = await this.resolveAccount(payload.accountKey); const state = payload.state || "active";
         if (state === "scheduled") return { records: await this.loadTasks(account.rawId, controller.signal), full: true };
         const records = await this.loadConversations(account.rawId, state === "archived", controller.signal, payload.mode === "incremental" ? payload.checkpoint : null);
-        return { records, full: payload.mode !== "incremental", compatible: true };
+        return { records, full: payload.mode !== "incremental", compatible: true, projects: Object.fromEntries([...this.projects.get(account.rawId)?.names ?? []].filter(([, name]) => Boolean(name))) };
       } finally { this.controllers.delete(payload.requestId); }
     }
     cancel(requestId) { this.controllers.get(requestId)?.abort(); }
@@ -103,6 +103,18 @@
       }
       return dedupe(records);
     }
+    async loadProjectEntries(accountId, signal, useCache = false) {
+      const cached = this.projects.get(accountId);
+      if (useCache && cached && Date.now() - cached.at < 120_000) return cached.names;
+      const discovered = new Map(); let sidebarCursor = null;
+      for (;;) { const query = new URLSearchParams({ limit: String(PAGE_SIZE), owned_only: "true", conversations_per_gizmo: "0" }); if (sidebarCursor !== null) query.set("cursor", String(sidebarCursor)); const sidebar = await this.request(`/backend-api/gizmos/snorlax/sidebar?${query}`, accountId, { signal }); for (const [id, name] of projectEntries(sidebar)) discovered.set(id, name); const next = sidebar?.cursor ?? sidebar?.next_cursor ?? sidebar?.nextCursor; if (next === undefined || next === null || String(next) === String(sidebarCursor)) break; sidebarCursor = next; }
+      this.projects.set(accountId, { names: discovered, at: Date.now() });
+      return discovered;
+    }
+    async listProjects(accountId, signal) {
+      const entries = await this.loadProjectEntries(accountId, signal);
+      return [...entries].filter(([, name]) => Boolean(name)).map(([id, name]) => ({ id, name }));
+    }
     async loadConversations(accountId, archived, signal, checkpoint) {
       const records = []; let offset = 0;
       for (;;) {
@@ -114,10 +126,8 @@
         if (rows.length < PAGE_SIZE) break; offset += rows.length;
       }
       if (!archived) {
-        const discovered = new Set(); const cachedProjects = this.projects.get(accountId);
-        if (checkpoint && cachedProjects && Date.now() - cachedProjects.at < 120_000) for (const id of cachedProjects.ids) discovered.add(id);
-        else { let sidebarCursor = null; for (;;) { const query = new URLSearchParams({ limit: String(PAGE_SIZE), owned_only: "true", conversations_per_gizmo: "0" }); if (sidebarCursor !== null) query.set("cursor", String(sidebarCursor)); const sidebar = await this.request(`/backend-api/gizmos/snorlax/sidebar?${query}`, accountId, { signal }); for (const id of projectIds(sidebar)) discovered.add(id); const next = sidebar?.cursor ?? sidebar?.next_cursor ?? sidebar?.nextCursor; if (next === undefined || next === null || String(next) === String(sidebarCursor)) break; sidebarCursor = next; } this.projects.set(accountId, { ids: [...discovered], at: Date.now() }); }
-        await mapLimit([...discovered], PROJECT_FETCH_CONCURRENCY, async (projectId) => {
+        const discovered = await this.loadProjectEntries(accountId, signal, Boolean(checkpoint));
+        await mapLimit([...discovered.keys()], PROJECT_FETCH_CONCURRENCY, async (projectId) => {
           let projectCursor = 0;
           for (;;) {
             const query = new URLSearchParams({ cursor: String(projectCursor), limit: String(PAGE_SIZE), owned_only: "true" });
@@ -164,24 +174,27 @@
     }
     async batch(payload) {
       const account = await this.resolveAccount(payload.accountKey); const action = payload.action; const ids = [...new Set(payload.ids || [])];
-      if (!["archive", "restore", "delete"].includes(action) || !ids.length || ids.length > 500) throw new BridgeError("INCOMPATIBLE_API", "无效批量操作");
+      if (!["archive", "restore", "delete", "add-to-project", "remove-from-project"].includes(action) || !ids.length || ids.length > 500) throw new BridgeError("INCOMPATIBLE_API", "无效批量操作");
+      const projectId = action === "add-to-project" && typeof payload.projectId === "string" && payload.projectId.startsWith("g-p-") ? payload.projectId.slice(0, 128) : null;
+      if (action === "add-to-project" && !projectId) throw new BridgeError("INCOMPATIBLE_API", "缺少目标项目");
       const controller = new AbortController(); this.controllers.set(payload.requestId, controller); const succeeded = [], failed = []; let cursor = 0;
       try {
-        const worker = async () => { while (cursor < ids.length && !controller.signal.aborted) { const id = ids[cursor++]; try { await this.mutate(account.rawId, action, id, controller.signal); succeeded.push(id); } catch (error) { if (controller.signal.aborted) break; failed.push({ id, message: error.message || String(error) }); if (error?.code === "NOT_LOGGED_IN" || error?.code === "UNAUTHORIZED") controller.abort(); } } };
+        const worker = async () => { while (cursor < ids.length && !controller.signal.aborted) { const id = ids[cursor++]; try { await this.mutate(account.rawId, action, id, controller.signal, projectId); succeeded.push(id); } catch (error) { if (controller.signal.aborted) break; failed.push({ id, message: error.message || String(error) }); if (error?.code === "NOT_LOGGED_IN" || error?.code === "UNAUTHORIZED") controller.abort(); } } };
         await Promise.all(Array.from({ length: Math.min(3, ids.length) }, worker)); const handled = new Set([...succeeded, ...failed.map((item) => item.id)]); return { succeeded, failed, unprocessed: ids.filter((id) => !handled.has(id)) };
       } finally { this.controllers.delete(payload.requestId); }
     }
-    async mutate(accountId, action, id, signal) {
+    async mutate(accountId, action, id, signal, projectId = null) {
       const path = `/backend-api/conversation/${encodeURIComponent(id)}`;
-      const options = { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action === "delete" ? { is_visible: false } : { is_archived: action === "archive" }) };
+      const body = action === "delete" ? { is_visible: false } : action === "archive" ? { is_archived: true } : action === "restore" ? { is_archived: false } : action === "add-to-project" ? { project_id: projectId } : { project_id: null };
+      const options = { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
       let response;
       for (let attempt = 0; attempt < 3; attempt += 1) { response = await this.fetch(path, { ...options, signal, credentials: "include", headers: { ...options.headers, ...this.headers(accountId) } }); if (response.status !== 429 && response.status < 500) break; await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt))); }
       if (!response?.ok) { if (response?.status === 401 || response?.status === 403) this.auth = null; throw await responseError(response, "ChatGPT 操作失败"); }
       if (response.status === 204) return;
-      const text = await response.text(); if (!text) throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 未返回可验证的确认结果"); let body; try { body = JSON.parse(text); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回了无法解析的确认结果"); }
-      const targetConfirmed = action === "delete" ? body?.is_visible === false : Object.prototype.hasOwnProperty.call(body || {}, "is_archived") && Boolean(body.is_archived) === (action === "archive");
-      const targetConflicts = action === "delete" && Object.prototype.hasOwnProperty.call(body || {}, "is_visible") && body.is_visible !== false;
-      if (targetConflicts || body?.success === false || body?.ok === false || body?.error || !(body?.success === true || body?.ok === true || targetConfirmed)) throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 未确认操作成功");
+      const text = await response.text(); if (!text) throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 未返回可验证的确认结果"); let body2; try { body2 = JSON.parse(text); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回了无法解析的确认结果"); }
+      const targetConfirmed = action === "delete" ? body2?.is_visible === false : action === "archive" ? Object.prototype.hasOwnProperty.call(body2 || {}, "is_archived") && Boolean(body2.is_archived) === true : action === "restore" ? Object.prototype.hasOwnProperty.call(body2 || {}, "is_archived") && Boolean(body2.is_archived) === false : action === "add-to-project" ? body2?.project_id === projectId : Object.prototype.hasOwnProperty.call(body2 || {}, "project_id") && (body2.project_id ?? null) === null;
+      const targetConflicts = action === "delete" && Object.prototype.hasOwnProperty.call(body2 || {}, "is_visible") && body2.is_visible !== false;
+      if (targetConflicts || body2?.success === false || body2?.ok === false || body2?.error || !(body2?.success === true || body2?.ok === true || targetConfirmed)) throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 未确认操作成功");
     }
     async request(path, accountId, options = {}) {
       let response;
@@ -202,6 +215,7 @@
     return new BridgeError(status === 401 ? "NOT_LOGGED_IN" : status === 403 ? "UNAUTHORIZED" : status === 429 ? "RATE_LIMITED" : "INCOMPATIBLE_API", `${prefix} (${status || "unknown"})${detail ? `：${detail}` : ""}`, status === 429 || status >= 500);
   }
   function projectIds(payload) { const ids = new Set(); const visit = (value, depth = 0) => { if (!value || depth > 7) return; if (Array.isArray(value)) return value.forEach((item) => visit(item, depth + 1)); if (typeof value !== "object") return; const id = value.id || value.gizmo_id || value.project_id; if (typeof id === "string" && id.startsWith("g-p-")) ids.add(id); Object.values(value).forEach((item) => visit(item, depth + 1)); }; visit(payload); return [...ids]; }
+  function projectEntries(payload) { const found = new Map(); const visit = (value, depth = 0) => { if (!value || depth > 7) return; if (Array.isArray(value)) return value.forEach((item) => visit(item, depth + 1)); if (typeof value !== "object") return; const id = value.id || value.gizmo_id || value.project_id; if (typeof id === "string" && id.startsWith("g-p-")) { if (!found.has(id)) found.set(id, null); const name = [value.display_name, value.title, value.name].find((candidate) => typeof candidate === "string" && candidate.trim()); if (name) found.set(id, name.trim().slice(0, 100)); } Object.values(value).forEach((item) => visit(item, depth + 1)); }; visit(payload); return [...found]; }
   function dedupe(records) { return [...new Map(records.map((row) => [row.id, row])).values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
-  return Object.freeze({ ChatGptRepository, BridgeError, accountRows, taskRows, normalize, projectIds });
+  return Object.freeze({ ChatGptRepository, BridgeError, accountRows, taskRows, normalize, projectIds, projectEntries });
 });

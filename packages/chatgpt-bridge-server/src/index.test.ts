@@ -7,6 +7,13 @@ import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from
 const servers: ChatGptBridgeServer[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => server.close())); });
 
+async function pairAutomatically(server: ChatGptBridgeServer, port: number): Promise<string> {
+  const response = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
+  expect(response.status).toBe(200);
+  const { secret } = await response.json() as { secret: string };
+  return secret;
+}
+
 describe("ChatGptBridgeServer", () => {
   it("pairs with one extension click and never reissues the secret", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 32000 + Math.floor(Math.random() * 1000);
@@ -26,10 +33,7 @@ describe("ChatGptBridgeServer", () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
     const port = 33000 + Math.floor(Math.random() * 1000);
     const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const pairing = server.beginPairing();
-    const response = await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: pairing.code }) });
-    expect(response.status).toBe(200);
-    const { secret } = await response.json() as { secret: string };
+    const secret = await pairAutomatically(server, port);
     expect((await readFile(join(dir, "secret"), "utf8")).trim()).toBe(secret);
     expect((await fetch(`http://127.0.0.1:${port}/v1/commands`)).status).toBe(401);
     const pending = server.request("status", {});
@@ -39,19 +43,10 @@ describe("ChatGptBridgeServer", () => {
     await expect(pending).resolves.toMatchObject({ ok: true, payload: { loggedIn: true } });
   });
 
-  it("expires pairing after five bad attempts", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 34000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start(); server.beginPairing();
-    for (let index = 0; index < 5; index += 1) await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: "bad" }) });
-    expect(server.state().code).toBeNull();
-  });
-
   it("removes timed-out commands before the browser can execute them", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 35000 + Math.floor(Math.random() * 1000);
     const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const pairing = server.beginPairing();
-    const response = await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: pairing.code }) });
-    const { secret } = await response.json() as { secret: string };
+    const secret = await pairAutomatically(server, port);
     await expect(server.request("batch", { action: "delete" }, 10)).rejects.toThrow("timed out");
     const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     await expect(commands.json()).resolves.toEqual([]);
@@ -81,9 +76,7 @@ describe("ConversationIndexStore", () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
     const port = 33000 + Math.floor(Math.random() * 1000);
     const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const pairing = server.beginPairing();
-    const pairResponse = await fetch(`http://127.0.0.1:${port}/v1/pair`, { method: "POST", body: JSON.stringify({ code: pairing.code }) });
-    const { secret } = await pairResponse.json() as { secret: string };
+    const secret = await pairAutomatically(server, port);
     const startedAt = Date.now();
     const poll = fetch(`http://127.0.0.1:${port}/v1/commands?wait=3`, { headers: { Authorization: `Bearer ${secret}` } }).then((response) => response.json() as Promise<Array<{ requestId: string }>>);
     server.request("list", { mode: "incremental", checkpoint: null }).catch(() => {});
@@ -107,6 +100,15 @@ describe("ConversationIndexStore", () => {
     await store.replace("account", "默认账号", "active", [{ id: "proj-one", title: "Project task", createdAt: 1, updatedAt: 2, state: "active", projectId: "proj-1", pinned: false, current: false, automation: false }], true);
     await store.merge("account", "默认账号", "active", [{ id: "proj-one", title: "Project task", createdAt: 1, updatedAt: 3, state: "active", pinned: false, current: false, automation: false }]);
     expect(store.read("account", "active")?.records[0]?.projectId).toBe("proj-1");
+  });
+
+  it("stores project names per account and serves them with every state snapshot", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-cache-")); const store = new ConversationIndexStore(join(dir, "index.json")); await store.load();
+    const record = { id: "one", title: "One", createdAt: 1, updatedAt: 2, state: "active" as const, projectId: "g-p-1", pinned: false, current: false, automation: false };
+    await store.replace("account", "默认账号", "active", [record], true, { "g-p-1": "调研项目" });
+    await store.replace("account", "默认账号", "archived", [], true);
+    expect(store.read("account", "active")?.projects).toEqual({ "g-p-1": "调研项目" });
+    expect(store.read("account", "archived")?.projects).toEqual({ "g-p-1": "调研项目" });
   });
 
   it("does not revive a recently confirmed deletion during full calibration", async () => {
