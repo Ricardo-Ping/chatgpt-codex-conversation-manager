@@ -66,7 +66,7 @@ pnpm package:win
 
 ## macOS 安装说明（Apple Silicon）
 
-> 当前 macOS 包未做 Apple Developer 签名与公证，首次打开可能被 Gatekeeper 拦截，属正常现象。提供 dmg 与 zip 两种安装包，任选其一。
+> macOS 版现为正式版，支持应用内自动更新。应用仍未做 Apple Developer 签名与公证，首次打开可能被 Gatekeeper 拦截，属正常现象。提供 dmg 与 zip 两种安装包，任选其一。
 
 ### 方式一：DMG 安装（推荐）
 
@@ -83,7 +83,7 @@ pnpm package:win
 `curl` 下载的文件不携带隔离标记，解压后可直接打开：
 
 ```bash
-curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.6.0/Conversation-Manager-0.6.0-mac-arm64.zip"
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.6.2/Conversation-Manager-0.6.2-mac-arm64.zip"
 ```
 
 - 加载浏览器扩展后 30 秒内自动配对；`thread/read` 内容读取需要在 chatgpt.com 页面打开的状态下使用。
@@ -94,9 +94,9 @@ curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/rel
 
 ## 当前限制
 
-- `v0.6.1` 支持 Windows x64、Chrome 和 Edge；macOS（Apple Silicon）提供未签名预览版。
+- `v0.6.2` 支持 Windows x64 与 macOS（Apple Silicon），均支持应用内自动更新；Windows 便携版与 macOS 因未做 Apple 签名，自动更新采用下载校验后原地换包的方式实现。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
-- macOS、Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
+- Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 
 ## License
 
