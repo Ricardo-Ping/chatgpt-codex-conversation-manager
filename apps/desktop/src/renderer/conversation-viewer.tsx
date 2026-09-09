@@ -18,7 +18,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import { marked } from "marked";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { t } from "./strings.js";
 
 const LANGUAGES: Array<[string, Parameters<typeof hljs.registerLanguage>[1]]> = [
@@ -47,12 +47,28 @@ export function renderMarkdown(text: string): string {
 const ROLE_KEYS: Array<[RegExp, string]> = [[/user/i, "用户"], [/reason|think/i, "思考"], [/agent|assistant/i, "助手"], [/tool/i, "工具"]];
 function roleLabel(role: string): string { for (const [pattern, key] of ROLE_KEYS) if (pattern.test(role)) return t(key); return t("工具"); }
 
-export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; messages: ViewerMessage[]; loading: boolean; error: string; onClose(): void; onOpenExternal(): void }) {
+export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; onClose(): void; onOpenExternal(): void }) {
   const rendered = useMemo(() => props.messages.map((message) => ({ role: message.role, html: renderMarkdown(message.text) })), [props.messages]);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = bodyRef.current; if (!root || props.loading) return;
+    root.querySelectorAll("pre").forEach((pre) => {
+      if (pre.querySelector(".code-bar")) return;
+      const code = pre.querySelector("code"); if (!code) return;
+      const language = [...code.classList].find((name) => name.startsWith("language-"))?.slice(9) || "code";
+      const bar = document.createElement("div"); bar.className = "code-bar";
+      const label = document.createElement("span"); label.className = "code-lang"; label.textContent = language;
+      const copy = document.createElement("button"); copy.type = "button"; copy.className = "code-copy"; copy.textContent = t("复制");
+      copy.addEventListener("click", () => { void navigator.clipboard.writeText(code.textContent || "").then(() => { copy.textContent = t("已复制"); setTimeout(() => { copy.textContent = t("复制"); }, 1500); }); });
+      bar.appendChild(label); bar.appendChild(copy);
+      pre.insertBefore(bar, pre.firstChild);
+    });
+  }, [rendered, props.loading]);
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
       <strong title={props.title}>{props.title}</strong>
-      <button type="button" onClick={props.onOpenExternal}>{t("在浏览器打开")}</button>
+      {!props.loading && !props.error && <small className="viewer-count">{t("{n} 条消息", { n: props.messages.length })}</small>}
+      <button type="button" onClick={props.onOpenExternal}>{props.externalLabel}</button>
       <button type="button" className="viewer-close" aria-label={t("关闭")} onClick={props.onClose}>×</button>
     </div>
     <div className="viewer-body">

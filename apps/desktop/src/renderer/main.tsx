@@ -251,7 +251,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
         {props.source === "codex" && !menu.record.projectId && isFolderGrouped(menu.record) && !folderExclusions.has(menu.record.id) && <button type="button" onClick={() => runFolderToggle(true)}>{t("移出文件夹")}</button>}
         {props.source === "codex" && folderExclusions.has(menu.record.id) && <button type="button" onClick={() => runFolderToggle(false)}>{t("恢复文件夹分组")}</button>}
       </div>}
-      {viewer && <ConversationViewerPanel title={viewer.title} messages={viewer.messages} loading={viewer.loading} error={viewer.error} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} />}
+      {viewer && <ConversationViewerPanel title={viewer.title} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在终端打开") : t("在浏览器打开")} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} />}
     </div>
   </section>;
 }
