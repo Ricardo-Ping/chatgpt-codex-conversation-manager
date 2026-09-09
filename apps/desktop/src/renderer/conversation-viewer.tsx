@@ -18,6 +18,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import { marked } from "marked";
+import { memo, useMemo } from "react";
 import { t } from "./strings.js";
 
 const LANGUAGES: Array<[string, Parameters<typeof hljs.registerLanguage>[1]]> = [
@@ -46,7 +47,8 @@ export function renderMarkdown(text: string): string {
 const ROLE_KEYS: Array<[RegExp, string]> = [[/user/i, "用户"], [/reason|think/i, "思考"], [/agent|assistant/i, "助手"], [/tool/i, "工具"]];
 function roleLabel(role: string): string { for (const [pattern, key] of ROLE_KEYS) if (pattern.test(role)) return t(key); return t("工具"); }
 
-export function ConversationViewerPanel(props: { title: string; messages: ViewerMessage[]; loading: boolean; error: string; onClose(): void; onOpenExternal(): void }) {
+export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; messages: ViewerMessage[]; loading: boolean; error: string; onClose(): void; onOpenExternal(): void }) {
+  const rendered = useMemo(() => props.messages.map((message) => ({ role: message.role, html: renderMarkdown(message.text) })), [props.messages]);
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
       <strong title={props.title}>{props.title}</strong>
@@ -56,13 +58,13 @@ export function ConversationViewerPanel(props: { title: string; messages: Viewer
     <div className="viewer-body">
       {props.loading && <p className="viewer-status">{t("正在加载会话内容…")}</p>}
       {!props.loading && props.error && <p className="viewer-status">{props.error}</p>}
-      {!props.loading && !props.error && props.messages.map((message, index) => (
+      {!props.loading && !props.error && rendered.map((message, index) => (
         <div className={`viewer-message role-${message.role.replace(/[^a-z]/gi, "")}`} key={`${index}`}>
           <p className="viewer-role">{roleLabel(message.role)}</p>
-          <div className="viewer-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.text) }} />
+          <div className="viewer-text" dangerouslySetInnerHTML={{ __html: message.html }} />
         </div>
       ))}
-      {!props.loading && !props.error && !props.messages.length && <p className="viewer-status">{t("没有可显示的会话内容")}</p>}
+      {!props.loading && !props.error && !rendered.length && <p className="viewer-status">{t("没有可显示的会话内容")}</p>}
     </div>
   </aside>;
-}
+});

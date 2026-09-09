@@ -133,6 +133,7 @@ const en: Record<string, string> = {
   "没有项目，点击重试": "No projects yet — click to retry",
   "会话内容": "Conversation",
   "正在加载会话内容…": "Loading conversation…",
+  "浏览器桥接已断开，无法读取会话内容": "The browser bridge is disconnected — conversation content cannot be loaded",
   "在浏览器打开": "Open in browser",
   "关闭": "Close",
   "没有可显示的会话内容": "No message content to display",
