@@ -50,6 +50,7 @@ function roleLabel(role: string): string { for (const [pattern, key] of ROLE_KEY
 export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; onClose(): void; onOpenExternal(): void }) {
   const rendered = useMemo(() => props.messages.map((message) => ({ role: message.role, html: renderMarkdown(message.text) })), [props.messages]);
   const bodyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { const root = bodyRef.current; if (root) root.scrollTop = 0; }, [props.title, props.messages]);
   useEffect(() => {
     const root = bodyRef.current; if (!root || props.loading) return;
     root.querySelectorAll("pre").forEach((pre) => {
@@ -71,7 +72,7 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
       <button type="button" onClick={props.onOpenExternal}>{props.externalLabel}</button>
       <button type="button" className="viewer-close" aria-label={t("关闭")} onClick={props.onClose}>×</button>
     </div>
-    <div className="viewer-body">
+    <div className="viewer-body" ref={bodyRef}>
       {props.loading && <p className="viewer-status">{t("正在加载会话内容…")}</p>}
       {!props.loading && props.error && <p className="viewer-status">{props.error}</p>}
       {!props.loading && !props.error && rendered.map((message, index) => (

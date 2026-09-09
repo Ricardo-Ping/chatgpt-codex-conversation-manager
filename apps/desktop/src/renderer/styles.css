@@ -128,6 +128,7 @@ button { cursor: pointer; }
 .viewer-head strong { flex: 1; font-size: 14px; color: var(--heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .viewer-head button { border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 8px; padding: 4px 10px; font-size: 12px; white-space: nowrap; }
 .viewer-close { font-size: 15px; }
+.viewer-count { color: var(--text-muted); font-size: 11px; }
 .viewer-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 12px; }
 .viewer-message { border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px 14px; background: var(--surface); }
 .viewer-message.role-user { background: var(--row-hover); border-color: #6cb9b1; }
