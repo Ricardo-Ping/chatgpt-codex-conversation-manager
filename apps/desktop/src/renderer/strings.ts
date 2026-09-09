@@ -74,6 +74,7 @@ const en: Record<string, string> = {
   "完成：成功 {s}，失败 {f}，未处理 {u}": "Done: {s} succeeded, {f} failed, {u} untouched",
   "操作失败：{msg}": "Operation failed: {msg}",
   "保存失败：{msg}": "Save failed: {msg}",
+  "同步或操作超时：浏览器可能正在休眠或网络较慢，请稍后点击“完整刷新”重试。": "The sync or action timed out — the browser may be asleep or the network is slow. Press “Full refresh” to try again.",
   "同步完成：共 {n} 条任务": "Sync finished: {n} tasks",
   "完整校准完成：共 {n} 条任务": "Full calibration finished: {n} tasks",
   "已取消保存": "Save canceled",

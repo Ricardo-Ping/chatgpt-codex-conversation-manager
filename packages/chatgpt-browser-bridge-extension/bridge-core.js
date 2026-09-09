@@ -7,7 +7,7 @@
   const ACTIVE_TASKS = new Set(["active", "scheduled", "pending", "enabled"]);
   const NON_SCHEDULED_TASK = /pro[_ -]?mode|deep[_ -]?research|image[_ -]?(?:generation|gen)|imagegen|dall[ -]?e/i;
   const PAGE_SIZE = 50; // ChatGPT 后端限制分页大小上限为 50
-  const PROJECT_FETCH_CONCURRENCY = 3;
+  const PROJECT_FETCH_CONCURRENCY = 6;
 
   async function mapLimit(items, limit, worker) {
     let cursor = 0;
