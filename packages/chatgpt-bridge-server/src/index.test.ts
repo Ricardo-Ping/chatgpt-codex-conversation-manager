@@ -29,6 +29,17 @@ describe("ChatGptBridgeServer", () => {
     await expect(repeated.json()).resolves.toEqual({ error: "already_paired" });
   });
 
+  it("exposes the expected extension version header for self-reload", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 32500 + Math.floor(Math.random() * 400);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const withoutVersion = await fetch(`http://127.0.0.1:${port}/v1/health`);
+    expect(withoutVersion.headers.get("x-expected-extension-version")).toBeNull();
+    server.setExpectedExtensionVersion("9.9.9");
+    const health = await fetch(`http://127.0.0.1:${port}/v1/health`);
+    expect(health.headers.get("x-expected-extension-version")).toBe("9.9.9");
+    expect(health.headers.get("access-control-expose-headers") ?? "").toContain("X-Expected-Extension-Version");
+  });
+
   it("pairs once, rejects bad secrets and resolves commands", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
     const port = 33000 + Math.floor(Math.random() * 1000);

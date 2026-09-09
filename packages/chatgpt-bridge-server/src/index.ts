@@ -25,8 +25,12 @@ export class ChatGptBridgeServer {
   #pending = new Map<string, Pending>();
   #lastSeen = 0;
   #extensionVersion: string | null = null;
+  #expectedExtensionVersion: string | null = null;
 
   constructor(secretFile: string, port = BRIDGE_PORT) { this.#secretFile = secretFile; this.#port = port; }
+
+  // 桌面端把自己打包的扩展版本号告诉扩展，扩展发现落后即可自行 reload 升级
+  setExpectedExtensionVersion(version: string | null): void { this.#expectedExtensionVersion = version; }
 
   async start(): Promise<void> {
     if (this.#server) return;
@@ -66,6 +70,10 @@ export class ChatGptBridgeServer {
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       res.setHeader("Cache-Control", "no-store");
+      if (this.#expectedExtensionVersion) {
+        res.setHeader("X-Expected-Extension-Version", this.#expectedExtensionVersion);
+        res.setHeader("Access-Control-Expose-Headers", "X-Expected-Extension-Version");
+      }
       if (req.method === "GET" && req.url === "/v1/health") { const state = this.state(); return json(res, 200, { protocolVersion: 1, paired: state.paired, connected: state.connected }); }
       if (req.method === "POST" && req.url === "/v1/pair/auto") { if (!isExtensionOrigin(req.headers.origin)) return json(res, 403, { error: "invalid_origin" }); return await this.#pairAutomatically(res); }
       if (!this.#authorize(req)) return json(res, 401, { error: "unauthorized" });

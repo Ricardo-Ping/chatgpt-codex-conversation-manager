@@ -26,15 +26,59 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function pair() {
   const response = await fetch(`${BASE}/pair/auto`, { method: "POST" });
+  void maybeSelfReload(response);
   const body = await response.json();
   if (!response.ok || !body.secret) throw new Error(body.error === "already_paired" ? "桌面端已与其他扩展配对，请先在设置中清除配对 / The desktop app is already paired — clear pairing in the desktop settings" : body.error || "Pairing failed / 配对失败");
   await chrome.storage.local.set({ bridgeSecret: body.secret }); void startPolling(); return { ok: true };
 }
+const CHATGPT_TAB_PATTERNS = ["https://chatgpt.com/*", "https://chat.openai.com/*"];
+const { query: findChatGptTabs } = chrome.tabs;
 async function status() {
-  const { bridgeSecret } = await chrome.storage.local.get("bridgeSecret");
-  let desktop = false; try { desktop = (await fetch(`${BASE}/health`)).ok; } catch {}
-  const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
-  return { paired: Boolean(bridgeSecret), desktop, chatgptOpen: tabs.length > 0 };
+  const stored = await chrome.storage.local.get("bridgeSecret");
+  const paired = Boolean(stored.bridgeSecret);
+  let desktop = false;
+  try {
+    const health = await fetch(BASE + "/health");
+    desktop = health.ok;
+  } catch {}
+  let chatgptOpen = false;
+  try {
+    const openTabs = await findChatGptTabs({ url: CHATGPT_TAB_PATTERNS });
+    chatgptOpen = openTabs.length > 0;
+  } catch {}
+  return { paired, desktop, chatgptOpen };
+}
+function versionParts(value) {
+  const core = String(value).trim().replace(/^v/i, "").split("-")[0];
+  const rawParts = core.split(".");
+  return rawParts.map((part) => {
+    const parsed = Number.parseInt(part, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  });
+}
+function isNewerVersion(candidate, current) {
+  const left = versionParts(candidate);
+  const right = versionParts(current);
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (left[index] || 0) - (right[index] || 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+// 桌面端更新后会在响应头里带期望的扩展版本；扩展发现自己落后且磁盘文件已是新版时，自我 reload 完成升级
+async function maybeSelfReload(response) {
+  try {
+    const target = response.headers.get("x-expected-extension-version");
+    if (!target) return;
+    const running = chrome.runtime.getManifest().version;
+    if (!isNewerVersion(target, running)) return;
+    if (inFlightCommands > 0) return;
+    const stored = await chrome.storage.local.get("lastSelfReloadTarget");
+    if (stored.lastSelfReloadTarget === target) return;
+    await chrome.storage.local.set({ lastSelfReloadTarget: target });
+    chrome.runtime.reload();
+  } catch {}
 }
 async function startPolling() {
   if (polling) return; polling = true;
@@ -48,6 +92,7 @@ async function startPolling() {
         const authorization = "Bearer " + bridgeSecret;
         const commandsUrl = `${BASE}/commands?wait=10`;
         const response = await fetch(commandsUrl, { headers: { Authorization: authorization, "X-Extension-Version": chrome.runtime.getManifest().version } });
+        void maybeSelfReload(response);
         if (response.status === 401) { await chrome.storage.local.remove("bridgeSecret"); break; }
         if (response.ok) { delay = 1500; for (const job of await response.json()) enqueueRelay(job, bridgeSecret); }
         else delay = 5000;
