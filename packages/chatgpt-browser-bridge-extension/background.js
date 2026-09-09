@@ -49,7 +49,7 @@ async function startPolling() {
         const commandsUrl = `${BASE}/commands?wait=10`;
         const response = await fetch(commandsUrl, { headers: { Authorization: authorization, "X-Extension-Version": chrome.runtime.getManifest().version } });
         if (response.status === 401) { await chrome.storage.local.remove("bridgeSecret"); break; }
-        if (response.ok) { delay = 1500; for (const job of await response.json()) void relayJob(job, bridgeSecret); }
+        if (response.ok) { delay = 1500; for (const job of await response.json()) enqueueRelay(job, bridgeSecret); }
         else delay = 5000;
       } catch { delay = 5000; }
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -69,6 +69,11 @@ async function relayJob(job, secret) {
   try { await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: job.requestId, ...result }) }); } catch {} finally { endKeepAlive(); }
 }
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let relayQueue = Promise.resolve();
+function enqueueRelay(job, secret) {
+  // 串行执行：同步与导出等命令排队转发，避免在 ChatGPT 端并发竞争导致超时
+  relayQueue = relayQueue.then(() => relayJob(job, secret)).catch(() => {});
+}
 async function sendToChatGptTab(tabId, message) {
   try { return await chrome.tabs.sendMessage(tabId, message); }
   catch (error) {

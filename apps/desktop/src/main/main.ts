@@ -142,7 +142,7 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
       const item = items[cursor++];
       if (!item) break;
       try {
-        const result = await bridge.request("read", { accountKey, id: item.id }, 120_000);
+        const result = await bridge.request("read", { accountKey, id: item.id }, 300_000);
         if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
         const payload = result.payload as { title?: unknown; messages?: unknown };
         const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
