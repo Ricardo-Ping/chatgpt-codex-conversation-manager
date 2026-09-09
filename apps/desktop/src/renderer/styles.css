@@ -122,7 +122,9 @@ button { cursor: pointer; }
 .context-menu .submenu-empty:hover { background: transparent; }
 
 /* ---- 会话阅读面板 ---- */
-.viewer-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(680px, 62%); display: flex; flex-direction: column; background: var(--surface-solid); border-left: 1px solid var(--border-card); border-radius: 16px 0 0 16px; box-shadow: var(--card-shadow-lg); z-index: 30; animation: viewer-in .22s ease; }
+.list-with-viewer { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+.list-with-viewer .list { min-width: 0; }
+.viewer-panel { width: clamp(300px, 52%, 680px); flex: none; margin-left: 10px; display: flex; flex-direction: column; min-width: 0; background: var(--surface-solid); border: 1px solid var(--border-card); border-radius: 16px; box-shadow: var(--card-shadow-lg); animation: viewer-in .22s ease; }
 @keyframes viewer-in { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
 .viewer-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
 .viewer-head strong { flex: 1; font-size: 14px; color: var(--heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

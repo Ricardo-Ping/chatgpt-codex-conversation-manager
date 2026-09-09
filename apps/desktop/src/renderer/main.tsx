@@ -228,12 +228,15 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
       <div className="workspace-title"><div><p className="eyebrow">{props.source === "chatgpt" ? t("浏览器会话") : t("本机任务")}</p><h1>{props.title}</h1><p>{props.subtitle}</p></div><div className="title-actions">{props.onOpenExternal && <button onClick={() => props.onOpenExternal?.()}>{t("打开 ChatGPT")}</button>}{props.accounts && props.accounts.length > 1 && <select value={props.accountKey} onChange={(event) => props.onAccount?.(event.target.value)}>{props.accounts.map((account) => <option key={account.key} value={account.key}>{account.label}</option>)}</select>}<button className="refresh" disabled={props.loading || busy || !props.refreshable} onClick={() => void runRefresh()}>{props.loading ? t("同步中…") : t("完整刷新")}</button></div></div>
       <div className="toolbar"><input ref={searchRef} className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索标题（按 / 聚焦）")} aria-label={t("搜索标题")}/>{props.onKind && <Segmented value={props.kind ?? "chat"} options={[["chat", t("聊天")], ["work", t("工作")]] as Array<["chat" | "work", string]>} onChange={props.onKind} aria-label={t("会话类型")}/>}<Segmented<AgeFilter> className="age-filter" value={age} options={ageOptions.map(([value, label]) => [value, t(label)] as [AgeFilter, string])} onChange={setAge} aria-label={t("时间范围")}/><select className="refresh" value={sort} onChange={(event) => setSort(event.target.value as "newest" | "oldest")} aria-label={t("排序")}><option value="newest">{t("最新优先")}</option><option value="oldest">{t("最早优先")}</option></select></div>
       {(props.error || props.notice || localNotice) && <div className={`notice ${props.error ? "error" : ""}`}>{props.error || localNotice || props.notice}</div>}
+      <div className="list-with-viewer">
       <div className="list" ref={listRef} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 120) setLimit((old) => Math.min(old + 100, visible.length)); }}>
         <div className="list-head"><span></span><span>{t("{n} 条结果", { n: visible.length })}</span><span>{t("最后更新")}</span></div>
         {groups ? groups.map((group) => <details className="project-group" open={!collapsedGroups.has(group.key)} onToggle={(event) => { const open = (event.target as HTMLDetailsElement).open; if (open === collapsedGroups.has(group.key)) toggleGroup(group.key, open); }} key={group.key}><summary><span>📁 {t(group.name)}</span><small>{t("{n} 条", { n: group.records.length })}{group.path ? ` · ${group.path}` : ""}</small></summary>{group.records.map(renderRow)}</details>) : shown.map(renderRow)}
         {!props.loading && !shown.length && (props.records.length === 0
           ? <div className="empty"><strong>{props.source === "chatgpt" ? t("还没有同步过会话") : t("还没有读取到任务")}</strong><small>{props.emptyHint}</small>{props.refreshable && <button onClick={() => void runRefresh()}>{t("完整刷新")}</button>}</div>
           : <div className="empty"><strong>{t("当前筛选下没有记录")}</strong><small>{t("换个搜索关键词，或放宽时间范围再试。")}</small><button onClick={() => { setQuery(""); setAge("all"); }}>{t("清除筛选")}</button></div>)}
+      </div>
+      {viewer && <ConversationViewerPanel title={viewer.title} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在终端打开") : t("在浏览器打开")} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} />}
       </div>
       <div className="actionbar">
         <div><strong>{t("已选 {n} 条", { n: selected.size })}</strong><span>{props.state === "scheduled" ? t("已安排会话请在 ChatGPT 官方页面管理") : props.writable ? t("操作只影响当前筛选与选择") : t("只读状态")}</span></div>
@@ -251,7 +254,6 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
         {props.source === "codex" && !menu.record.projectId && isFolderGrouped(menu.record) && !folderExclusions.has(menu.record.id) && <button type="button" onClick={() => runFolderToggle(true)}>{t("移出文件夹")}</button>}
         {props.source === "codex" && folderExclusions.has(menu.record.id) && <button type="button" onClick={() => runFolderToggle(false)}>{t("恢复文件夹分组")}</button>}
       </div>}
-      {viewer && <ConversationViewerPanel title={viewer.title} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在终端打开") : t("在浏览器打开")} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} />}
     </div>
   </section>;
 }
