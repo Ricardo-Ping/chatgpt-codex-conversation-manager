@@ -112,14 +112,14 @@ button { cursor: pointer; }
 .list-head span:last-child { text-align: right; }
 .row { align-items: start; padding: 9px 16px; border-bottom: 1px solid var(--border-soft); transition: background .15s; cursor: pointer; user-select: none; }
 .context-menu { position: fixed; z-index: 60; min-width: 210px; padding: 6px; display: flex; flex-direction: column; background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--card-shadow-lg); }
-.context-menu > button, .context-sub > button { text-align: left; background: transparent; border: none; padding: 8px 12px; border-radius: 8px; font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.context-menu button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent; border: none; padding: 8px 12px; border-radius: 8px; font-size: 13px; color: var(--text); word-break: break-word; }
 .context-menu button:hover { background: var(--row-hover); }
-.context-sub { display: flex; flex-direction: column; }
+.context-sub { display: flex; flex-direction: column; position: relative; }
 .context-sub > button::after { content: "▸"; margin-left: auto; color: var(--text-muted); }
-.context-sub { position: relative; }
-.context-sub .submenu { display: none; position: absolute; left: calc(100% - 4px); top: -6px; min-width: 220px; max-height: 320px; overflow: auto; padding: 6px; background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--card-shadow-lg); }
-.context-sub:hover .submenu, .context-sub:focus-within .submenu { display: flex; flex-direction: column; }
-.submenu-empty { padding: 8px 12px; font-size: 12px; color: var(--text-muted); }
+.context-sub .submenu { display: none; position: absolute; left: calc(100% - 4px); top: -6px; min-width: 220px; max-width: 300px; max-height: 320px; overflow: auto; padding: 6px; background: var(--surface-solid); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--card-shadow-lg); flex-direction: column; gap: 1px; }
+.context-sub:hover .submenu, .context-sub:focus-within .submenu { display: flex; }
+.context-menu .submenu-empty { color: var(--text-muted); cursor: default; }
+.context-menu .submenu-empty:hover { background: transparent; }
 .row:hover, .row.selected { background: var(--row-hover); }
 .row.focused { box-shadow: inset 3px 0 0 var(--brand-glow); background: var(--row-focus); }
 .check { width: 28px; height: 28px; margin-top: 5px; display: grid; place-items: center; }
