@@ -18,7 +18,7 @@ import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 import { marked } from "marked";
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "./strings.js";
 
 const LANGUAGES: Array<[string, Parameters<typeof hljs.registerLanguage>[1]]> = [
@@ -50,6 +50,7 @@ function roleLabel(role: string): string { for (const [pattern, key] of ROLE_KEY
 export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; onClose(): void; onOpenExternal(): void }) {
   const rendered = useMemo(() => props.messages.map((message) => ({ role: message.role, html: renderMarkdown(message.text) })), [props.messages]);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
   useEffect(() => { const root = bodyRef.current; if (root) root.scrollTop = 0; }, [props.title, props.messages]);
   useEffect(() => {
     const root = bodyRef.current; if (!root || props.loading) return;
@@ -65,10 +66,12 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
       pre.insertBefore(bar, pre.firstChild);
     });
   }, [rendered, props.loading]);
+  const copyAll = () => { const markdown = props.messages.map((message) => `## ${roleLabel(message.role)}\n\n${message.text}`).join("\n\n"); void navigator.clipboard.writeText(markdown).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); }); };
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
       <strong title={props.title}>{props.title}</strong>
       {!props.loading && !props.error && <small className="viewer-count">{t("{n} 条消息", { n: props.messages.length })}</small>}
+      {!props.loading && !props.error && props.messages.length > 0 && <button type="button" onClick={copyAll}>{copiedAll ? t("已复制全文") : t("复制全文")}</button>}
       <button type="button" onClick={props.onOpenExternal}>{props.externalLabel}</button>
       <button type="button" className="viewer-close" aria-label={t("关闭")} onClick={props.onClose}>×</button>
     </div>

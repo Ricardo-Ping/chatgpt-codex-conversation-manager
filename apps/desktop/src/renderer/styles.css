@@ -136,8 +136,8 @@ button { cursor: pointer; }
 .viewer-text { font-size: 13px; line-height: 1.65; color: var(--text); overflow-wrap: anywhere; }
 .viewer-text img { max-width: 100%; border-radius: 8px; }
 .viewer-text h1, .viewer-text h2, .viewer-text h3 { color: var(--heading); margin: 10px 0 6px; }
-.viewer-text pre { position: relative; background: #0c181b; color: #e6f2ef; padding: 30px 12px 10px; border-radius: 10px; overflow: auto; font-size: 12px; line-height: 1.5; }
-.code-bar { position: absolute; top: 0; right: 0; left: 0; display: flex; align-items: center; justify-content: space-between; padding: 4px 10px; }
+.viewer-text pre { background: #0c181b; color: #e6f2ef; padding: 0 12px 10px; border-radius: 10px; overflow: auto; font-size: 12px; line-height: 1.5; }
+.code-bar { position: sticky; top: 0; left: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin: 0 -12px 6px; padding: 5px 10px 4px; background: #0c181b; }
 .code-lang { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #8fbcb4; }
 .code-copy { border: 1px solid #2a4a46; background: transparent; color: #8fbcb4; border-radius: 6px; padding: 1px 8px; font-size: 11px; }
 .code-copy:hover { background: #12312d; color: #d9efe9; }
