@@ -1,5 +1,7 @@
 :root {
   color-scheme: light dark;
+  font-family: var(--font-stack);
+  --font-stack: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --bg: #f4f8f7; --bg-glow: #dff3ef;
   --surface: rgba(255, 255, 255, .92); --surface-solid: #ffffff; --surface-list: rgba(255, 255, 255, .82);
   --surface-input: #ffffff;

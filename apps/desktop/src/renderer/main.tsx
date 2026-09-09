@@ -165,7 +165,8 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
       if (editing) return;
       if (event.key === "/") { event.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); return; }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") { event.preventDefault(); if (selectable.length) setSelected(new Set(selectable)); return; }
-      if (event.key === "Delete" && !busy && props.writable && selected.size > 0 && (props.state === "active" || props.state === "archived")) { event.preventDefault(); void batch(props.state === "active" ? "archive" : "delete"); }
+      const deleteRequested = event.key === "Delete" || (/Mac/i.test(navigator.platform) && event.metaKey && event.key === "Backspace");
+      if (deleteRequested && !busy && props.writable && selected.size > 0 && (props.state === "active" || props.state === "archived")) { event.preventDefault(); void batch(props.state === "active" ? "archive" : "delete"); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
