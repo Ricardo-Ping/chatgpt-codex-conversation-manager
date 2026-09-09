@@ -63,16 +63,16 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
       const bar = document.createElement("div"); bar.className = "code-bar";
       const label = document.createElement("span"); label.className = "code-lang"; label.textContent = language;
       const copy = document.createElement("button"); copy.type = "button"; copy.className = "code-copy"; copy.textContent = t("复制");
-      copy.addEventListener("click", () => { void navigator.clipboard.writeText(code.textContent || "").then(() => { copy.textContent = t("已复制"); setTimeout(() => { copy.textContent = t("复制"); }, 1500); }); });
+      copy.addEventListener("click", () => { void navigator.clipboard.writeText(code.textContent || "").then(() => { copy.textContent = t("已复制"); setTimeout(() => { copy.textContent = t("复制"); }, 1500); }).catch(() => {}); });
       bar.appendChild(label); bar.appendChild(copy);
       pre.insertBefore(bar, pre.firstChild);
     });
   }, [rendered, props.loading]);
-  const copyAll = () => { const markdown = props.messages.map((message) => `## ${roleLabel(message.role)}\n\n${message.text}`).join("\n\n"); void navigator.clipboard.writeText(markdown).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); }); };
+  const copyAll = () => { const markdown = props.messages.map((message) => `## ${roleLabel(message.role)}\n\n${message.text}`).join("\n\n"); void navigator.clipboard.writeText(markdown).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); }).catch(() => {}); };
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
       <strong title={props.subtitle ? `${props.title} · ${props.subtitle}` : props.title}>{props.title}</strong>
-      {!props.loading && !props.error && <small className="viewer-count">{t("{n} 条消息", { n: props.messages.length })}</small>}
+      {!props.loading && !props.error && props.messages.length > 0 && <small className="viewer-count">{t("{n} 条消息", { n: props.messages.length })}</small>}
       {!props.loading && !props.error && props.messages.length > 0 && <button type="button" onClick={copyAll}>{copiedAll ? t("已复制全文") : t("复制全文")}</button>}
       <button type="button" onClick={props.onOpenExternal}>{props.externalLabel}</button>
       <button type="button" className="viewer-close" aria-label={t("关闭")} onClick={props.onClose}>×</button>

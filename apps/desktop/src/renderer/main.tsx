@@ -146,7 +146,7 @@ function ExtensionPath({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   if (!value) return null;
   return <div className="extension-path">
-    <div className="extension-path-head"><span>{label}</span><button type="button" onClick={() => void navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}>{copied ? t("已复制") : t("复制路径")}</button></div>
+    <div className="extension-path-head"><span>{label}</span><button type="button" onClick={() => void navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => {})}>{copied ? t("已复制") : t("复制路径")}</button></div>
     <code>{value}</code>
   </div>;
 }
