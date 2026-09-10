@@ -52,17 +52,23 @@ export function renderMarkdown(text: string): string {
   return container.innerHTML;
 }
 
-const ROLE_KEYS: Array<[RegExp, string]> = [[/user/i, "用户"], [/reason|think/i, "思考"], [/agent|assistant/i, "助手"], [/tool/i, "工具"]];
-function roleLabel(role: string): string { for (const [pattern, key] of ROLE_KEYS) if (pattern.test(role)) return t(key); return t("工具"); }
+const ROLE_KEYS: Array<[RegExp, string]> = [[/user/i, "用户"], [/reason|think/i, "思考"], [/tool/i, "工具"]];
+function roleLabel(role: string, sourceName: string): string {
+  if (/user/i.test(role)) return t("用户");
+  if (/agent|assistant/i.test(role)) return sourceName;
+  if (/reason|think/i.test(role)) return t("思考");
+  if (/tool/i.test(role)) return t("工具");
+  return sourceName;
+}
 
 export function relativeTime(value: number): string { const seconds = Math.max(0, Math.round((Date.now() - value) / 1000)); return seconds < 60 ? t("刚刚") : seconds < 3600 ? t("{n} 分钟前", { n: Math.floor(seconds / 60) }) : seconds < 86400 ? t("{n} 小时前", { n: Math.floor(seconds / 3600) }) : seconds < 7 * 86400 ? t("{n} 天前", { n: Math.floor(seconds / 86400) }) : new Date(value).toLocaleDateString(); }
 
-export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; subtitle?: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; hasPrev?: boolean; hasNext?: boolean; onPrev?(): void; onNext?(): void; onClose(): void; onOpenExternal(): void; onRetry?(): void }) {
+export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; subtitle?: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; sourceName: string; hasPrev?: boolean; hasNext?: boolean; onPrev?(): void; onNext?(): void; onClose(): void; onOpenExternal(): void; onRetry?(): void }) {
   const rendered = useMemo(() => props.messages.map((message) => ({ role: message.role, at: message.at, html: renderMarkdown(message.text) })), [props.messages]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   useEffect(() => { const root = bodyRef.current; if (root) root.scrollTop = 0; }, [props.title, props.subtitle, props.messages]);
-  const copyAll = () => { const markdown = props.messages.map((message) => `## ${roleLabel(message.role)}\n\n${message.text}`).join("\n\n"); void navigator.clipboard.writeText(markdown).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); }).catch(() => {}); };
+  const copyAll = () => { const markdown = props.messages.map((message) => `## ${roleLabel(message.role, props.sourceName)}\n\n${message.text}`).join("\n\n"); void navigator.clipboard.writeText(markdown).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); }).catch(() => {}); };
   const onBodyClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     const button = target.closest(".code-copy");
@@ -86,7 +92,7 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
       {!props.loading && props.error && <p className="viewer-status">{props.error}{props.onRetry && <button type="button" className="viewer-retry" onClick={props.onRetry}>{t("重试")}</button>}</p>}
       {!props.loading && !props.error && rendered.map((message, index) => (
         <div className={`viewer-message role-${message.role.replace(/[^a-z]/gi, "")}`} key={`${index}`}>
-          <p className="viewer-role">{roleLabel(message.role)}{message.at ? ` · ${relativeTime(message.at)}` : ""}</p>
+          <p className="viewer-role">{roleLabel(message.role, props.sourceName)}{message.at ? ` · ${relativeTime(message.at)}` : ""}</p>
           <div className="viewer-text" dangerouslySetInnerHTML={{ __html: message.html }} />
         </div>
       ))}
