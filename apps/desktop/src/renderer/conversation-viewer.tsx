@@ -9,7 +9,7 @@ export interface ViewerMessage { role: string; at: number | null; text: string }
 // 生成 wolai 风格的代码块：头部（语言标签 + 复制按钮）与代码主体一体渲染，
 // 语言未知时用 highlight.js 自动检测；复制按钮通过事件委托响应点击
 export function renderMarkdown(text: string): string {
-  const parsed = marked.parse(text ?? "", { async: false });
+  const parsed = marked.parse(text ?? "", { async: false, gfm: true, breaks: true });
   const html = DOMPurify.sanitize(typeof parsed === "string" ? parsed : "", { ADD_ATTR: ["target"] });
   const container = document.createElement("div");
   container.innerHTML = html;
@@ -18,14 +18,19 @@ export function renderMarkdown(text: string): string {
     if (!code) return;
     const declared = [...code.classList].find((name) => name.startsWith("language-"))?.slice(9) ?? "";
     const raw = code.textContent ?? "";
-    let language = declared;
+    let language: string;
     let highlighted: string;
     if (declared && hljs.getLanguage(declared)) {
+      language = declared;
       highlighted = hljs.highlight(raw, { language: declared, ignoreIllegals: true }).value;
-    } else {
+    } else if (!declared && raw.length <= 40_000) {
       const auto = hljs.highlightAuto(raw);
+      language = auto.language || "text";
       highlighted = auto.value;
-      language = auto.language ?? "";
+    } else {
+      // 声明了未注册语言（如 mermaid）或超长代码：按纯文本转义显示，标签仍显示声明语言
+      language = declared || "text";
+      highlighted = hljs.highlight(raw, { language: "plaintext", ignoreIllegals: true }).value;
     }
     const bar = document.createElement("div");
     bar.className = "code-bar";
