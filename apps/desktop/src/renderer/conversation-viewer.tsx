@@ -1,45 +1,46 @@
 import DOMPurify from "dompurify";
-import hljs from "highlight.js/lib/core";
-import bash from "highlight.js/lib/languages/bash";
-import c from "highlight.js/lib/languages/c";
-import cpp from "highlight.js/lib/languages/cpp";
-import csharp from "highlight.js/lib/languages/csharp";
-import css from "highlight.js/lib/languages/css";
-import diff from "highlight.js/lib/languages/diff";
-import go from "highlight.js/lib/languages/go";
-import java from "highlight.js/lib/languages/java";
-import javascript from "highlight.js/lib/languages/javascript";
-import json from "highlight.js/lib/languages/json";
-import markdown from "highlight.js/lib/languages/markdown";
-import python from "highlight.js/lib/languages/python";
-import rust from "highlight.js/lib/languages/rust";
-import sql from "highlight.js/lib/languages/sql";
-import typescript from "highlight.js/lib/languages/typescript";
-import xml from "highlight.js/lib/languages/xml";
-import yaml from "highlight.js/lib/languages/yaml";
+import hljs from "highlight.js/lib/common";
 import { marked } from "marked";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "./strings.js";
 
-const LANGUAGES: Array<[string, Parameters<typeof hljs.registerLanguage>[1]]> = [
-  ["javascript", javascript], ["typescript", typescript], ["python", python], ["bash", bash], ["shell", bash],
-  ["json", json], ["sql", sql], ["xml", xml], ["css", css], ["markdown", markdown], ["yaml", yaml],
-  ["java", java], ["c", c], ["cpp", cpp], ["csharp", csharp], ["go", go], ["rust", rust], ["diff", diff]
-];
-for (const [name, language] of LANGUAGES) hljs.registerLanguage(name, language);
-
 export interface ViewerMessage { role: string; at: number | null; text: string }
 
+// 生成 wolai 风格的代码块：头部（语言标签 + 复制按钮）与代码主体一体渲染，
+// 语言未知时用 highlight.js 自动检测；复制按钮通过事件委托响应点击
 export function renderMarkdown(text: string): string {
   const parsed = marked.parse(text ?? "", { async: false });
   const html = DOMPurify.sanitize(typeof parsed === "string" ? parsed : "", { ADD_ATTR: ["target"] });
   const container = document.createElement("div");
   container.innerHTML = html;
-  container.querySelectorAll("pre code").forEach((code) => {
-    const languageClass = [...code.classList].find((name) => name.startsWith("language-"))?.slice(9) ?? "";
+  container.querySelectorAll("pre").forEach((pre) => {
+    const code = pre.querySelector("code");
+    if (!code) return;
+    const declared = [...code.classList].find((name) => name.startsWith("language-"))?.slice(9) ?? "";
     const raw = code.textContent ?? "";
-    const highlighted = languageClass && hljs.getLanguage(languageClass) ? hljs.highlight(raw, { language: languageClass }) : null;
-    if (highlighted) { code.innerHTML = highlighted.value; code.classList.add("hljs"); }
+    let language = declared;
+    let highlighted: string;
+    if (declared && hljs.getLanguage(declared)) {
+      highlighted = hljs.highlight(raw, { language: declared, ignoreIllegals: true }).value;
+    } else {
+      const auto = hljs.highlightAuto(raw);
+      highlighted = auto.value;
+      language = auto.language ?? "";
+    }
+    const bar = document.createElement("div");
+    bar.className = "code-bar";
+    const label = document.createElement("span");
+    label.className = "code-lang";
+    label.textContent = language || "text";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "code-copy";
+    copy.textContent = t("复制");
+    bar.append(label, copy);
+    const newCode = document.createElement("code");
+    newCode.className = "hljs";
+    newCode.innerHTML = highlighted;
+    pre.replaceChildren(bar, newCode);
   });
   container.querySelectorAll("a").forEach((link) => { link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); });
   container.querySelectorAll("img").forEach((image) => image.setAttribute("loading", "lazy"));
@@ -54,21 +55,15 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
   const bodyRef = useRef<HTMLDivElement>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   useEffect(() => { const root = bodyRef.current; if (root) root.scrollTop = 0; }, [props.title, props.subtitle, props.messages]);
-  useEffect(() => {
-    const root = bodyRef.current; if (!root || props.loading) return;
-    root.querySelectorAll("pre").forEach((pre) => {
-      if (pre.querySelector(".code-bar")) return;
-      const code = pre.querySelector("code"); if (!code) return;
-      const language = [...code.classList].find((name) => name.startsWith("language-"))?.slice(9) || "code";
-      const bar = document.createElement("div"); bar.className = "code-bar";
-      const label = document.createElement("span"); label.className = "code-lang"; label.textContent = language;
-      const copy = document.createElement("button"); copy.type = "button"; copy.className = "code-copy"; copy.textContent = t("复制");
-      copy.addEventListener("click", () => { void navigator.clipboard.writeText(code.textContent || "").then(() => { copy.textContent = t("已复制"); setTimeout(() => { copy.textContent = t("复制"); }, 1500); }).catch(() => {}); });
-      bar.appendChild(label); bar.appendChild(copy);
-      pre.insertBefore(bar, pre.firstChild);
-    });
-  }, [rendered, props.loading]);
   const copyAll = () => { const markdown = props.messages.map((message) => `## ${roleLabel(message.role)}\n\n${message.text}`).join("\n\n"); void navigator.clipboard.writeText(markdown).then(() => { setCopiedAll(true); setTimeout(() => setCopiedAll(false), 1500); }).catch(() => {}); };
+  const onBodyClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    const button = target.closest(".code-copy");
+    if (!button) return;
+    const code = button.closest("pre")?.querySelector("code");
+    if (!code) return;
+    void navigator.clipboard.writeText(code.textContent || "").then(() => { button.textContent = t("已复制"); setTimeout(() => { button.textContent = t("复制"); }, 1500); }).catch(() => {});
+  };
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
       <strong title={props.subtitle ? `${props.title} · ${props.subtitle}` : props.title}>{props.title}</strong>
@@ -77,7 +72,7 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
       <button type="button" onClick={props.onOpenExternal}>{props.externalLabel}</button>
       <button type="button" className="viewer-close" aria-label={t("关闭")} onClick={props.onClose}>×</button>
     </div>
-    <div className="viewer-body" ref={bodyRef}>
+    <div className="viewer-body" ref={bodyRef} onClick={onBodyClick}>
       {props.loading && <p className="viewer-status">{t("正在加载会话内容…")}</p>}
       {!props.loading && props.error && <p className="viewer-status">{props.error}</p>}
       {!props.loading && !props.error && rendered.map((message, index) => (
