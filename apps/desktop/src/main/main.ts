@@ -23,6 +23,10 @@ const CHATGPT_URL = "https://chatgpt.com/";
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const BRIDGE_TIMEOUT_LONG_MS = 300_000;
 const BRIDGE_TIMEOUT_PROJECTS_MS = 120_000;
+// 会话正文读取缓存：重复查看同一会话时秒开，编辑类操作不走此缓存
+const readConversationCache = new Map<string, { at: number; data: { title: string; messages: Array<{ role: string; at: number | null; text: string }> } }>();
+const READ_CACHE_TTL_MS = 10 * 60 * 1000;
+const READ_CACHE_MAX = 50;
 let codexCommand = "codex";
 let codex = new CodexAppServer(codexCommand);
 let codexConnection: Promise<boolean> | null = null;
@@ -260,11 +264,17 @@ ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); c
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || M().unnamedTask, derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
 ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const id = requireId(input.id);
+  const cacheKey = `${accountKey}:${id}`;
+  const cached = readConversationCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < READ_CACHE_TTL_MS) { cached.at = Date.now(); readConversationCache.delete(cacheKey); readConversationCache.set(cacheKey, cached); return cached.data; }
   const result = await bridge.request("read", { accountKey, id }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
   const payload = result.payload as { title?: unknown; messages?: unknown };
   const rows = Array.isArray(payload?.messages) ? payload.messages : [];
   const messages = rows.map((row) => { const item = row && typeof row === "object" ? row as Record<string, unknown> : {}; return { role: typeof item.role === "string" ? item.role.slice(0, 32) : "other", at: typeof item.at === "number" ? item.at : null, text: typeof item.text === "string" ? item.text.slice(0, 500_000) : "" }; }).filter((item) => item.text.trim().length > 0);
-  return { title: typeof payload?.title === "string" ? payload.title.slice(0, 200) : "", messages };
+  const data = { title: typeof payload?.title === "string" ? payload.title.slice(0, 200) : "", messages };
+  readConversationCache.set(cacheKey, { at: Date.now(), data });
+  if (readConversationCache.size > READ_CACHE_MAX) { const oldest = readConversationCache.keys().next().value; if (oldest !== undefined) readConversationCache.delete(oldest); }
+  return data;
 });
 ipcMain.handle("codex:read-thread", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const id = requireId(input.threadId);
