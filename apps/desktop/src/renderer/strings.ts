@@ -153,6 +153,8 @@ const en: Record<string, string> = {
   "开机启动": "Launch at startup",
   "登录系统时自动启动 Conversation Manager，默认关闭。": "Automatically start Conversation Manager when you sign in. Off by default.",
   "开机时自动启动": "Start when you sign in",
+  "重试": "Retry",
+  "跳转最新": "Jump to latest",
   "默认自动检查更新": "Check for updates automatically",
   "立即检查": "Check now",
   "下载更新": "Download update",

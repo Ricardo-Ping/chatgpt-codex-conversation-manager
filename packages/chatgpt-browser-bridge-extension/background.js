@@ -124,6 +124,7 @@ function enqueueRelay(job, secret) {
   else relayQueue = relayQueue.then(() => relayJob(job, secret)).catch(() => {});
 }
 async function sendToChatGptTab(tabId, message) {
+  let lastError = null;
   try { return await chrome.tabs.sendMessage(tabId, message); }
   catch (error) {
     if (!/receiving end does not exist|could not establish connection/i.test(error?.message || String(error))) throw error;
@@ -131,10 +132,11 @@ async function sendToChatGptTab(tabId, message) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await wait(300 * (attempt + 1));
       try { return await chrome.tabs.sendMessage(tabId, message); } catch (retryError) {
+        lastError = retryError;
         if (attempt === 2 || !/receiving end does not exist|could not establish connection/i.test(retryError?.message || String(retryError))) throw retryError;
       }
     }
-    throw new Error("Receiving end does not exist");
+    throw new Error("Receiving end does not exist", { cause: lastError });
   }
 }
 

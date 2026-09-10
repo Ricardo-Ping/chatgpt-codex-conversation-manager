@@ -34,6 +34,8 @@ export function roleLabel(role: string, lang: ExportLang = "zh"): string {
 }
 
 export function safeFileName(title: string, id: string): string {
+  // \u0000-\u001f 为需要过滤的控制字符，属于清洗而非误报
+  // eslint-disable-next-line no-control-regex
   const base = title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60).replace(/[. ]+$/, "");
   const suffix = id.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 8);
   return `${base || "未命名会话"}-${suffix || "export"}.md`;

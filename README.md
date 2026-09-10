@@ -1,5 +1,7 @@
 # Conversation Manager
 
+![CI](https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/actions/workflows/ci.yml/badge.svg)
+
 Conversation Manager 是一个面向 ChatGPT 与 Codex 的本地桌面会话管理器，专注解决历史记录太多时难以查找、筛选和批量整理的问题。
 
 双击会话即可在应用内查看完整正文——支持 Markdown 表格、代码语法高亮与图片；也可以随时交给官方网页或 Codex 终端打开。

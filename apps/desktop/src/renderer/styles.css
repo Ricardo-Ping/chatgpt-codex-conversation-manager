@@ -128,7 +128,7 @@ button { cursor: pointer; }
 /* ---- 会话阅读面板 ---- */
 .list-with-viewer { flex: 1; min-height: 0; display: flex; align-items: stretch; }
 .list-with-viewer .list { min-width: 0; }
-.viewer-panel { width: clamp(300px, 52%, 680px); flex: none; margin-left: 10px; display: flex; flex-direction: column; min-width: 0; background: var(--surface-solid); border: 1px solid var(--border-card); border-radius: 16px; box-shadow: var(--card-shadow-lg); animation: viewer-in .22s ease; }
+.viewer-panel { width: clamp(300px, 52%, 680px); flex: none; margin-left: 10px; display: flex; flex-direction: column; min-width: 0; background: var(--surface-solid); border: 1px solid var(--border-card); border-radius: 16px; box-shadow: var(--card-shadow-lg); animation: viewer-in .22s ease; position: relative; }
 @keyframes viewer-in { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
 .viewer-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
 .viewer-head strong { flex: 1; font-size: 14px; color: var(--heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,6 +167,9 @@ button { cursor: pointer; }
 .viewer-text a { color: var(--brand-text); }
 .viewer-text blockquote { margin: 8px 0; padding: 2px 12px; border-left: 3px solid #6cb9b1; color: var(--text-muted); }
 .viewer-status { color: var(--text-muted); font-size: 13px; }
+.viewer-retry { margin-left: 10px; border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 8px; padding: 2px 10px; font-size: 12px; }
+.viewer-jump { position: absolute; right: 16px; bottom: 14px; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); font-size: 15px; box-shadow: var(--card-shadow); }
+.viewer-jump:hover { background: var(--row-hover); }
 .notice { position: relative; }
 .notice-close { position: absolute; top: 6px; right: 10px; border: none; background: transparent; color: inherit; font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
 .notice-close:hover { background: rgba(0, 0, 0, .08); }

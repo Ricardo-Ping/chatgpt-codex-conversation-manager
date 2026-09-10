@@ -5,7 +5,7 @@ import type { CachedConversation, PairingState } from "@conversation-manager/cha
 import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
 import type { ThemePreference, UpdateState } from "./global.js";
 import { groupChatGptConversations, groupCodexConversations, isFolderGrouped, isProjectTask } from "./codex-groups.js";
-import { ConversationViewerPanel } from "./conversation-viewer.js";
+import { ConversationViewerPanel, relativeTime } from "./conversation-viewer.js";
 import { initialLanguage, setLanguage, t, type Lang } from "./strings.js";
 import iconUrl from "./icon.png";
 import "./styles.css";
@@ -185,7 +185,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   const groups = useMemo(() => props.source === "codex" ? groupCodexConversations(shown, folderExclusions) : props.kind === "work" ? groupChatGptConversations(shown, props.projectNames) : null, [shown, props.source, props.kind, props.projectNames, folderExclusions]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(`cm-collapsed-groups:${props.source}`) || "[]") as string[]); } catch { return new Set(); } });
   const toggleGroup = (key: string, open: boolean) => setCollapsedGroups((old) => { const next = new Set(old); if (open) next.delete(key); else next.add(key); try { localStorage.setItem(`cm-collapsed-groups:${props.source}`, JSON.stringify([...next])); } catch {} return next; });
-  const toggleOne = (id: string) => setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  const toggleOne = (id: string) => setSelected((old) => { const next = new Set(old); if (next.has(id)) { next.delete(id); } else { next.add(id); } return next; });
   async function batch(action: "archive" | "restore" | "delete") { const ids = [...selected]; if (!ids.length) return; setBusy(true); setLocalNotice(""); try { const result = await props.onBatch(action, ids); if (!result) return; setSelected(new Set([...result.failed.map((item) => item.id), ...(result.unprocessed || [])])); setLocalNotice(t("完成：成功 {s}，失败 {f}，未处理 {u}", { s: result.succeeded.length, f: result.failed.length, u: result.unprocessed?.length || 0 })); } catch (cause) { setLocalNotice(`${t("操作失败")}：${message(cause)}`); } finally { setBusy(false); } }
   const runRefresh = () => { setLocalNotice(""); return Promise.resolve(props.onRefresh()); };
   useEffect(() => { if (!menu) return; const close = () => setMenu(null); const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); }; window.addEventListener("click", close); window.addEventListener("resize", close); window.addEventListener("blur", close); window.addEventListener("keydown", onKey); return () => { window.removeEventListener("click", close); window.removeEventListener("resize", close); window.removeEventListener("blur", close); window.removeEventListener("keydown", onKey); }; }, [menu]);
@@ -236,7 +236,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
           ? <div className="empty"><strong>{props.source === "chatgpt" ? t("还没有同步过会话") : t("还没有读取到任务")}</strong><small>{props.emptyHint}</small>{props.refreshable && <button onClick={() => void runRefresh()}>{t("完整刷新")}</button>}</div>
           : <div className="empty"><strong>{t("当前筛选下没有记录")}</strong><small>{t("换个搜索关键词，或放宽时间范围再试。")}</small><button onClick={() => { setQuery(""); setAge("all"); }}>{t("清除筛选")}</button></div>)}
       </div>
-      {viewer && <ConversationViewerPanel title={viewer.title} subtitle={props.source === "codex" ? viewer.record.cwd ?? undefined : undefined} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在终端打开") : t("在浏览器打开")} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} />}
+      {viewer && <ConversationViewerPanel title={viewer.title} subtitle={props.source === "codex" ? viewer.record.cwd ?? undefined : undefined} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在终端打开") : t("在浏览器打开")} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} onRetry={() => openViewer(viewer.record)} />}
       </div>
       <div className="actionbar">
         <div><strong>{t("已选 {n} 条", { n: selected.size })}</strong><span>{props.state === "scheduled" ? t("已安排会话请在 ChatGPT 官方页面管理") : props.writable ? t("操作只影响当前筛选与选择") : t("只读状态")}</span></div>
@@ -299,7 +299,6 @@ function Settings({ version, lang, onLanguage, onCodexStatus }: { version: strin
 
 function toChatManaged(record: CachedConversation): ManagedConversation { return { source: "chatgpt", ...record, capabilities: record.state === "scheduled" ? [] : record.state === "archived" ? ["open", "restore", "delete"] : ["open", "archive", "delete"], running: false }; }
 function toCodexManaged(thread: CodexThread, archived: boolean): ManagedConversation { return { source: "codex", id: thread.id, title: thread.name?.trim() || thread.preview?.trim() || t("未命名任务"), preview: thread.preview?.trim().replace(/\s+/g, " ").slice(0, 160) || null, createdAt: thread.createdAt * 1000, updatedAt: thread.updatedAt * 1000, state: archived ? "archived" : "active", projectId: thread.projectId || undefined, cwd: thread.cwd, pinned: false, running: thread.status?.type === "active", current: false, capabilities: thread.status?.type === "active" ? ["open"] : archived ? ["open", "restore", "delete"] : ["open", "archive", "delete"] }; }
-function relativeTime(value: number): string { const seconds = Math.max(0, Math.round((Date.now() - value) / 1000)); return seconds < 60 ? t("刚刚") : seconds < 3600 ? t("{n} 分钟前", { n: Math.floor(seconds / 60) }) : seconds < 86400 ? t("{n} 小时前", { n: Math.floor(seconds / 3600) }) : seconds < 7 * 86400 ? t("{n} 天前", { n: Math.floor(seconds / 86400) }) : new Date(value).toLocaleDateString(); }
 function formatBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function message(error: unknown): string { return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error:\s*/, ""); }
 function friendlyError(error: unknown): string {

@@ -152,7 +152,7 @@ export async function swapMacBundle(archivePath: string, bundlePath: string): Pr
 
 export async function cleanupMacInstallLeftovers(bundlePath: string): Promise<void> {
   const parent = dirname(bundlePath);
-  let entries: string[] = [];
+  let entries: string[];
   try { entries = await readdir(parent); } catch { return; }
   await Promise.all(entries.filter((entry) => entry.startsWith(ARCHIVE_PREFIX) || entry.startsWith(BACKUP_PREFIX)).map((entry) => rm(join(parent, entry), { recursive: true, force: true }).catch(() => {})));
 }
