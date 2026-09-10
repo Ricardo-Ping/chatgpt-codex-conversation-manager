@@ -78,6 +78,16 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
     if (!code) return;
     void navigator.clipboard.writeText(code.textContent || "").then(() => { button.textContent = t("已复制"); setTimeout(() => { button.textContent = t("复制"); }, 1500); }).catch(() => {});
   };
+  useEffect(() => {
+    if (!props.onPrev && !props.onNext) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === "ArrowLeft" && props.onPrev) props.onPrev();
+      if (event.key === "ArrowRight" && props.onNext) props.onNext();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [props.onPrev, props.onNext]);
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
       {!props.hasPrev && !props.hasNext ? null : <button type="button" className="viewer-nav" aria-label={t("上一个")} disabled={!props.hasPrev} onClick={props.onPrev}>‹</button>}
@@ -100,5 +110,6 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
       {!props.loading && !props.error && !rendered.length && <p className="viewer-status">{t("没有可显示的会话内容")}</p>}
     </div>
     <button type="button" className="viewer-jump" aria-label={t("跳转最新")} onClick={() => { const root = bodyRef.current; if (root) root.scrollTo({ top: root.scrollHeight, behavior: "smooth" }); }}>⤓</button>
+    <button type="button" className="viewer-top" aria-label={t("跳转顶部")} onClick={() => { const root = bodyRef.current; if (root) root.scrollTo({ top: 0, behavior: "smooth" }); }}>⤒</button>
   </aside>;
 });
