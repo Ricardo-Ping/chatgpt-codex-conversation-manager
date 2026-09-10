@@ -143,7 +143,14 @@ button { cursor: pointer; }
 .viewer-role { margin: 0 0 6px; font-size: 11px; color: var(--text-muted); }
 .viewer-text { font-size: 13px; line-height: 1.65; color: var(--text); overflow-wrap: anywhere; }
 .viewer-text img { max-width: 100%; border-radius: 8px; }
-.viewer-text h1, .viewer-text h2, .viewer-text h3 { color: var(--heading); margin: 10px 0 6px; }
+.viewer-text h1, .viewer-text h2, .viewer-text h3, .viewer-text h4, .viewer-text h5, .viewer-text h6 { color: var(--heading); margin: 10px 0 6px; }
+.viewer-text h1 { font-size: 15px; }
+.viewer-text h2 { font-size: 14px; }
+.viewer-text h3, .viewer-text h4, .viewer-text h5, .viewer-text h6 { font-size: 13px; }
+.viewer-text p { margin: 6px 0; font-size: 13px; }
+.viewer-text ul, .viewer-text ol { margin: 6px 0; padding-left: 20px; font-size: 13px; }
+.viewer-text li { margin: 3px 0; font-size: 13px; }
+.viewer-text strong { font-size: inherit; }
 .viewer-text pre { display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 10px; overflow: hidden; font-size: 12px; line-height: 1.55; }
 .viewer-text pre > code { display: block; overflow: auto; padding: 10px 14px 12px; background: transparent; color: var(--code-text); }
 .code-bar { display: flex; align-items: center; justify-content: space-between; flex: none; padding: 5px 8px 5px 12px; background: var(--code-bar-bg); border-bottom: 1px solid var(--code-border); }
