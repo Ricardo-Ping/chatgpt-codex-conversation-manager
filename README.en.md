@@ -1,18 +1,20 @@
 # Conversation Manager
 
-Conversation Manager is a local desktop app for finding, filtering, archiving, restoring, and deleting ChatGPT conversations and Codex tasks. It does not render message bodies or replace the official clients; opening an item hands it to ChatGPT or `codex resume`.
+Conversation Manager is a local desktop app for finding, filtering, organizing, and reading ChatGPT conversations and Codex tasks. Double-click any item to read its full content inside the app — with Markdown tables, syntax-highlighted code, and images — or hand it to ChatGPT / `codex resume` any time.
 
 ## Features
 
 - A single sidebar for platform switching (ChatGPT / Codex), conversation states with count badges, and bridge / App Server connection indicators.
-- ChatGPT distinguishes chat from project work: project conversations are hidden from the chat list by default and managed from the Codex workspace; a "Work" toggle reveals them when needed.
+- In-app conversation reader: double-click a row to slide in a reading panel with Markdown tables, syntax-highlighted code in 18 languages, and images; copy the whole conversation or a single code block. The list stays interactive — double-click another row to switch content.
+- Project management: ChatGPT “Work” and Codex tasks are grouped by project folder; right-click any conversation to move it into or out of a project, synced back to ChatGPT / Codex. Codex directory-grouped tasks can be moved to “Non-project tasks” and restored.
+- ChatGPT distinguishes chat from project work: project conversations are hidden from the chat list by default and managed from the work view.
 - Title, state, and age filters with sliding segmented controls.
-- Click anywhere on a row to select, double-click to open. Keyboard support: ↑↓ move, Space select, Enter open, `/` focus search, Ctrl/Cmd+A select all, Delete quick archive, Esc clear.
+- Click anywhere on a row to select, double-click to open the reader. Keyboard support: ↑↓ move, Space select, Enter open, `/` focus search, Ctrl/Cmd+A select all, Delete quick archive, Esc dismisses menus and panels.
 - Multi-select batch archive, restore, and permanent delete with an in-app confirmation dialog; deletions above 20 items require typing the count.
 - Protection for pinned/current chats and running Codex tasks.
-- Minimal local index with instant cached display; the visible view checks incrementally every 2 minutes and performs a full calibration at least every 6 hours. Remote deletions are removed locally during full calibration, which can also be started immediately with “Full refresh.”
+- Minimal local index (including project membership) with instant cached display; the visible view checks incrementally every 2 minutes and performs a full calibration at least every 6 hours. Remote deletions are removed locally during full calibration, which can also be started immediately with “Full refresh.”
 - Follows the system dark theme, or pin light/dark in Settings.
-- The installer build checks GitHub Releases automatically and installs updates silently 5 seconds after download; the portable build checks and links to the download page.
+- Both builds check GitHub Releases automatically. Windows installs silently 5 seconds after download; macOS swaps the app bundle in place (unsigned-friendly); the portable build links to the download page.
 
 ## No duplicate sign-in
 
@@ -24,7 +26,7 @@ ChatGPT uses the companion Chrome/Edge extension and your existing browser sessi
 2. Enable Developer Mode in the Chrome/Edge extension page and load the unpacked extension from the folder shown by "Open extension folder" in the app settings.
 3. The extension pairs automatically once loaded — it reaches out to the desktop app in the background, no clicks required. The toolbar popup's "Connect desktop manager" button still works.
 4. Keep a signed-in `chatgpt.com` tab open to read and manage conversations. After an extension upgrade, the bridge recovers an already-open tab automatically.
-5. After a desktop app update, reload the extension; the sidebar shows an amber "reload needed" hint on version mismatch.
+5. After a desktop app update, the extension negotiates versions with the desktop and reloads itself into the new build; manual reload from `chrome://extensions` is only needed as a fallback.
 
 With no ChatGPT session, cached records remain readable but write operations are disabled.
 
