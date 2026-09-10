@@ -33,6 +33,9 @@ declare global {
       list(params: { cursor?: string | null; archived?: boolean; searchTerm?: string; full?: boolean }): Promise<ThreadListResponse>;
       read(threadId: string): Promise<{ messages: Array<{ role: string; at: number | null; text: string }> }>;
       projects(): Promise<{ projects: Array<{ id: string; name: string }> }>;
+      projectCreate(name: string, rootPath: string): Promise<{ id: string; name: string }>;
+      projectRename(projectId: string, name: string): Promise<void>;
+      projectDelete(projectId: string): Promise<void>;
       setProject(threadId: string, projectId: string | null): Promise<void>;
       open(threadId: string): Promise<{ opened: boolean; copied?: boolean }>;
       previewDelete(ids: string[]): Promise<{ tasks: Array<{ id: string; title: string; derived: boolean }>; missing: string[]; running: string[]; confirmationToken: string | null }>;

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 
 export interface CodexThread {
@@ -114,6 +115,20 @@ export class CodexAppServer {
       if (!next) return out;
       cursor = next;
     }
+  }
+
+  async createProject(name: string, rootPath: string): Promise<CodexProject> {
+    const result = await this.request<{ id?: unknown; name?: unknown }>("project/create", { name, roots: [{ path: rootPath }], idempotencyKey: randomUUID() });
+    if (!result || typeof result.id !== "string" || !result.id) throw new Error("project/create returned no id");
+    return { id: result.id, name: typeof result.name === "string" && result.name.trim() ? result.name.trim().slice(0, 100) : name };
+  }
+
+  async renameProject(projectId: string, name: string): Promise<void> {
+    await this.request("project/update", { projectId, name });
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    await this.request("project/delete", { projectId });
   }
 
   async setThreadProject(threadId: string, projectId: string | null): Promise<void> {

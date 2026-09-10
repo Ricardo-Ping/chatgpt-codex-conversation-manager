@@ -282,6 +282,26 @@ ipcMain.handle("codex:read-thread", async (event, value) => {
   return { messages: codexMessagesFromTurns(codexTurnsFromPayload(payload)) };
 });
 ipcMain.handle("codex:projects", async (event) => { requireRenderer(event); return { projects: await codex.listProjects() }; });
+ipcMain.handle("codex:project-create", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const name = typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 100) : null;
+  const rootPath = typeof input.rootPath === "string" && input.rootPath.trim() ? input.rootPath.trim() : null;
+  if (!name || !rootPath) throw new Error(M().projectMissing);
+  return await codex.createProject(name, rootPath);
+});
+ipcMain.handle("codex:project-rename", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const projectId = typeof input.projectId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(input.projectId) ? input.projectId : null;
+  const name = typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 100) : null;
+  if (!projectId || !name) throw new Error(M().projectMissing);
+  await codex.renameProject(projectId, name);
+});
+ipcMain.handle("codex:project-delete", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const projectId = typeof input.projectId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(input.projectId) ? input.projectId : null;
+  if (!projectId) throw new Error(M().projectMissing);
+  await codex.deleteProject(projectId);
+});
 ipcMain.handle("codex:set-project", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const threadId = requireId(input.threadId);
   const projectId = typeof input.projectId === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(input.projectId) ? input.projectId : null;

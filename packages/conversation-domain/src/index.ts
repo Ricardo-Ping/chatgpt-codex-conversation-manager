@@ -45,7 +45,10 @@ export function filterConversations(records: ManagedConversation[], filter: Conv
 
   return records.filter((record) => {
     if (record.state !== filter.state) return false;
-    if (query && !record.title.toLocaleLowerCase().includes(query)) return false;
+    if (query) {
+      const haystack = `${record.title}\n${record.preview ?? ""}`.toLocaleLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
     return cutoff === null || (record.updatedAt !== null && record.updatedAt < cutoff);
   });
 }
