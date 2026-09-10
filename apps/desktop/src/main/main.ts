@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shel
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants as fsConstants } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, copyFile, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import electronUpdater from "electron-updater";
@@ -339,6 +339,27 @@ ipcMain.handle("startup:set", (event, value) => {
   if (typeof value !== "boolean") throw new Error("Invalid startup preference");
   try { app.setLoginItemSettings({ openAtLogin: value }); } catch {}
   return app.getLoginItemSettings().openAtLogin;
+});
+ipcMain.handle("data:export", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const directory = typeof input.directory === "string" && input.directory.trim() ? input.directory.trim() : null;
+  if (!directory) throw new Error(M().noDirectory);
+  await mkdir(directory, { recursive: true });
+  const userData = app.getPath("userData");
+  const files = ["conversation-index.json", "update-preferences.json", "theme-preferences.json", "language-preferences.json", "codex-command.json"];
+  let copied = 0;
+  for (const file of files) { try { await copyFile(join(userData, file), join(directory, file)); copied += 1; } catch {} }
+  return { copied, directory };
+});
+ipcMain.handle("data:import", async (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const directory = typeof input.directory === "string" && input.directory.trim() ? input.directory.trim() : null;
+  if (!directory) throw new Error(M().noDirectory);
+  const userData = app.getPath("userData");
+  const files = ["conversation-index.json", "update-preferences.json", "theme-preferences.json", "language-preferences.json", "codex-command.json"];
+  let restored = 0;
+  for (const file of files) { try { await copyFile(join(directory, file), join(userData, file)); restored += 1; } catch {} }
+  return { restored };
 });
 
 type ThemePreference = "system" | "light" | "dark";

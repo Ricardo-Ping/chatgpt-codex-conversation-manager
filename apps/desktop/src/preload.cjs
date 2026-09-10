@@ -67,5 +67,9 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
   startup: Object.freeze({
     get: () => ipcRenderer.invoke("startup:get"),
     set: (value) => ipcRenderer.invoke("startup:set", value)
+  }),
+  data: Object.freeze({
+    exportData: (directory) => ipcRenderer.invoke("data:export", { directory }),
+    importData: (directory) => ipcRenderer.invoke("data:import", { directory })
   })
 }));

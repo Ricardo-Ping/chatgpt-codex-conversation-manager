@@ -47,5 +47,6 @@ declare global {
     theme: { get(): Promise<ThemePreference>; set(value: ThemePreference): Promise<ThemePreference> };
     updates: { getState(): Promise<UpdateState>; setAutoUpdate(enabled: boolean): Promise<UpdateState>; check(): Promise<UpdateState>; download(): Promise<UpdateState>; install(): Promise<void>; openRelease(): Promise<void>; onState(callback: (state: UpdateState) => void): () => void };
     startup: { get(): Promise<boolean>; set(value: boolean): Promise<boolean> };
+    data: { exportData(directory: string): Promise<{ copied: number; directory: string }>; importData(directory: string): Promise<{ restored: number }> };
   }; }
 }
