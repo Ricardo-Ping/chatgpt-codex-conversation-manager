@@ -121,7 +121,8 @@ export class CodexAppServer {
   }
 
   async readThread(threadId: string): Promise<unknown> {
-    const result = await this.request<unknown>("thread/read", { threadId });
+    // includeTurns 不传时 thread/read 只返回元数据（新版本协议默认分页，不含正文）
+    const result = await this.request<unknown>("thread/read", { threadId, includeTurns: true });
     return result;
   }
 

@@ -65,6 +65,12 @@ function turnText(item: Record<string, unknown>): string | null {
   for (const key of ["text", "content", "message"]) {
     const value = item[key];
     if (typeof value === "string" && value.trim()) return value.trim();
+    if (Array.isArray(value)) {
+      // content 数组形态（如 thread/read 的 agentMessage.itemTypes）：取所有文本片段
+      const parts = value.map((part) => typeof part === "string" ? part : part && typeof part === "object" ? (part as Record<string, unknown>).text : null).filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+      const joined = parts.join("\n").trim();
+      if (joined) return joined;
+    }
   }
   return null;
 }
