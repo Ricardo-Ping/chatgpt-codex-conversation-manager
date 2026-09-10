@@ -313,6 +313,13 @@ ipcMain.handle("update:install", (event) => {
   autoUpdater.quitAndInstall(true, true);
 });
 ipcMain.handle("update:open-release", async (event) => { requireRenderer(event); await shell.openExternal(RELEASE_URL); });
+ipcMain.handle("startup:get", (event) => { requireRenderer(event); return app.getLoginItemSettings().openAtLogin; });
+ipcMain.handle("startup:set", (event, value) => {
+  requireRenderer(event);
+  if (typeof value !== "boolean") throw new Error("Invalid startup preference");
+  try { app.setLoginItemSettings({ openAtLogin: value }); } catch {}
+  return app.getLoginItemSettings().openAtLogin;
+});
 
 type ThemePreference = "system" | "light" | "dark";
 async function loadThemePreference(): Promise<ThemePreference> { try { const raw = JSON.parse(await readFile(join(app.getPath("userData"), "theme-preferences.json"), "utf8")) as { theme?: unknown }; return raw.theme === "light" || raw.theme === "dark" || raw.theme === "system" ? raw.theme : "system"; } catch { return "system"; } }

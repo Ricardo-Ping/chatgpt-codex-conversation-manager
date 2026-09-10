@@ -43,5 +43,6 @@ declare global {
     language: { get(): Promise<"zh" | "en">; set(value: "zh" | "en"): Promise<"zh" | "en"> };
     theme: { get(): Promise<ThemePreference>; set(value: ThemePreference): Promise<ThemePreference> };
     updates: { getState(): Promise<UpdateState>; setAutoUpdate(enabled: boolean): Promise<UpdateState>; check(): Promise<UpdateState>; download(): Promise<UpdateState>; install(): Promise<void>; openRelease(): Promise<void>; onState(callback: (state: UpdateState) => void): () => void };
+    startup: { get(): Promise<boolean>; set(value: boolean): Promise<boolean> };
   }; }
 }
