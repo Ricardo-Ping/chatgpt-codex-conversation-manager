@@ -136,7 +136,9 @@ button { cursor: pointer; }
 .viewer-close { font-size: 15px; }
 .viewer-count { color: var(--text-muted); font-size: 11px; }
 .viewer-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 12px; }
-.viewer-message { border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px 14px; background: var(--surface); }
+.viewer-message { border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px 14px; background: var(--surface); max-width: 85%; }
+.viewer-message.msg-assistant { align-self: flex-start; }
+.viewer-message.msg-user { align-self: flex-end; background: var(--brand-soft); border-color: var(--chip-active-border); }
 .viewer-message.role-user { background: var(--row-hover); border-color: #6cb9b1; }
 .viewer-message.role-reasoning { opacity: .78; }
 .viewer-message.role-reasoning .viewer-text { color: var(--text-muted); font-size: 12px; }

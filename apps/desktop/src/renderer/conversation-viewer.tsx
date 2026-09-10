@@ -92,7 +92,7 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
       {props.loading && <p className="viewer-status">{t("正在加载会话内容…")}</p>}
       {!props.loading && props.error && <p className="viewer-status">{props.error}{props.onRetry && <button type="button" className="viewer-retry" onClick={props.onRetry}>{t("重试")}</button>}</p>}
       {!props.loading && !props.error && rendered.map((message, index) => (
-        <div className={`viewer-message role-${message.role.replace(/[^a-z]/gi, "")}`} key={`${index}`}>
+        <div className={`viewer-message ${/user/i.test(message.role) ? "msg-user" : "msg-assistant"} role-${message.role.replace(/[^a-z]/gi, "")}`} key={`${index}`}>
           <p className="viewer-role">{roleLabel(message.role, props.sourceName)}{message.at ? ` · ${relativeTime(message.at)}` : ""}</p>
           <div className="viewer-text" dangerouslySetInnerHTML={{ __html: message.html }} />
         </div>
