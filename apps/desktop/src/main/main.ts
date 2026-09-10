@@ -212,6 +212,21 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
         const messages = rawMessages.map((message) => { const row = message && typeof message === "object" ? message as Record<string, unknown> : {}; return { role: typeof row.role === "string" ? row.role : "other", at: typeof row.at === "number" ? row.at : null, text: typeof row.text === "string" ? row.text : "" }; });
         const transcript = { id: item.id, title: typeof payload.title === "string" ? payload.title.slice(0, 200) : item.title, messages };
         const markdown = chatgptTranscriptMarkdown(transcript, Date.now(), "ChatGPT", LANG);
+        const imagesDir = join(directory, "images");
+        const imageUrls: string[] = [...new Set([...markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)].map((m) => m[1]))].filter((u): u is string => Boolean(u)).slice(0, 30);
+        for (let imgIdx = 0; imgIdx < imageUrls.length; imgIdx++) {
+          const imgUrl: string = imageUrls[imgIdx] ?? "";
+          if (!imgUrl) continue;
+          try {
+            const res = await fetch(imgUrl);
+            if (!res.ok) continue;
+            const buf = Buffer.from(await res.arrayBuffer());
+            const extMatch = imgUrl.match(/\.(png|jpe?g|webp|gif)/i);
+            const ext = extMatch?.[1]?.toLowerCase() ?? "png";
+            await mkdir(imagesDir, { recursive: true });
+            await writeFile(join(imagesDir, `img-${imgIdx + 1}.${ext}`), buf);
+          } catch {}
+        }
         await writeFile(join(directory, safeFileName(transcript.title || item.title, item.id)), markdown, "utf8");
         saved += 1;
       } catch (error) { failed.push({ id: item.id, message: error instanceof Error ? error.message : String(error) }); }
