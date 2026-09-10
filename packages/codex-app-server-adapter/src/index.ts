@@ -121,8 +121,9 @@ export class CodexAppServer {
   }
 
   async readThread(threadId: string): Promise<unknown> {
-    // includeTurns 不传时 thread/read 只返回元数据（新版本协议默认分页，不含正文）
-    const result = await this.request<unknown>("thread/read", { threadId, includeTurns: true });
+    // includeTurns 不传时 thread/read 只返回元数据（新版本协议默认分页，不含正文）；
+    // 大任务全量装载可能超过默认超时，单独放宽
+    const result = await this.request<unknown>("thread/read", { threadId, includeTurns: true }, 120_000);
     return result;
   }
 
@@ -168,18 +169,18 @@ export class CodexAppServer {
     return { records: selected, missing, running, fingerprint };
   }
 
-  async request<T>(method: string, params?: unknown): Promise<T> {
+  async request<T>(method: string, params?: unknown, timeoutMs = 30_000): Promise<T> {
     await this.start();
-    return this.#requestRaw(method, params);
+    return this.#requestRaw(method, params, timeoutMs);
   }
 
-  #requestRaw<T>(method: string, params?: unknown): Promise<T> {
+  #requestRaw<T>(method: string, params?: unknown, timeoutMs = 30_000): Promise<T> {
     const id = this.#nextId++;
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`Codex request timed out: ${method}`));
-      }, 30_000);
+      }, timeoutMs);
       this.#pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timeout });
       try {
         this.#send(params === undefined ? { id, method } : { id, method, params });
