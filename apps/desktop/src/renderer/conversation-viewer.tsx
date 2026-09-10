@@ -52,7 +52,6 @@ export function renderMarkdown(text: string): string {
   return container.innerHTML;
 }
 
-const ROLE_KEYS: Array<[RegExp, string]> = [[/user/i, "用户"], [/reason|think/i, "思考"], [/tool/i, "工具"]];
 function roleLabel(role: string, sourceName: string): string {
   if (/user/i.test(role)) return t("用户");
   if (/agent|assistant/i.test(role)) return sourceName;
