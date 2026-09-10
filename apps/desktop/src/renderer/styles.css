@@ -138,6 +138,8 @@ button { cursor: pointer; }
 .viewer-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 30px; display: flex; flex-direction: column; gap: 12px; }
 .viewer-message { border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px 14px; background: var(--surface); }
 .viewer-message.role-user { background: var(--row-hover); border-color: #6cb9b1; }
+.viewer-message.role-reasoning { opacity: .78; }
+.viewer-message.role-reasoning .viewer-text { color: var(--text-muted); font-size: 12px; }
 .viewer-role { margin: 0 0 6px; font-size: 11px; color: var(--text-muted); }
 .viewer-text { font-size: 13px; line-height: 1.65; color: var(--text); overflow-wrap: anywhere; }
 .viewer-text img { max-width: 100%; border-radius: 8px; }

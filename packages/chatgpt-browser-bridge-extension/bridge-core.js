@@ -170,7 +170,7 @@
             const pointer = part && typeof part === "object" ? part.asset_pointer : null;
             if (typeof pointer === "string" && pointer.startsWith("file-service://")) segments.push(`![image](${pointer})`);
           }
-          const text = segments.join("\n\n").trim();
+          const text = cleanCitationMarkers(segments.join("\n\n")).trim();
           if (text && role !== "system") messages.push({ role, at: typeof message.create_time === "number" ? message.create_time * 1000 : null, text });
         }
         (node.children || []).forEach((child) => visit(child, depth + 1));
@@ -236,7 +236,12 @@
     return new BridgeError(status === 401 ? "NOT_LOGGED_IN" : status === 403 ? "UNAUTHORIZED" : status === 429 ? "RATE_LIMITED" : "INCOMPATIBLE_API", `${prefix} (${status || "unknown"})${detail ? `：${detail}` : ""}`, status === 429 || status >= 500);
   }
   function projectIds(payload) { const ids = new Set(); const visit = (value, depth = 0) => { if (!value || depth > 7) return; if (Array.isArray(value)) return value.forEach((item) => visit(item, depth + 1)); if (typeof value !== "object") return; const id = value.id || value.gizmo_id || value.project_id; if (typeof id === "string" && id.startsWith("g-p-")) ids.add(id); Object.values(value).forEach((item) => visit(item, depth + 1)); }; visit(payload); return [...ids]; }
+  // ChatGPT 搜索引用以私有区字符 U+E200/U+E201 包裹 citeturnNsearchM 标记，
+  // 在网页里隐形，但导出与阅读时会显示为乱码方块——这里整块移除
+  function cleanCitationMarkers(text) {
+    return text.replace(/\uE200[^\uE201]*\uE201/g, "").replace(/[\uE200-\uE2FF]/g, "");
+  }
   function projectEntries(payload) { const found = new Map(); const visit = (value, depth = 0) => { if (!value || depth > 7) return; if (Array.isArray(value)) return value.forEach((item) => visit(item, depth + 1)); if (typeof value !== "object") return; const id = value.id || value.gizmo_id || value.project_id; if (typeof id === "string" && id.startsWith("g-p-")) { if (!found.has(id)) found.set(id, null); const name = [value.display_name, value.title, value.name].find((candidate) => typeof candidate === "string" && candidate.trim()); if (name) found.set(id, name.trim().slice(0, 100)); } Object.values(value).forEach((item) => visit(item, depth + 1)); }; visit(payload); return [...found]; }
   function dedupe(records) { return [...new Map(records.map((row) => [row.id, row])).values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
-  return Object.freeze({ ChatGptRepository, BridgeError, accountRows, taskRows, normalize, projectIds, projectEntries });
+  return Object.freeze({ ChatGptRepository, BridgeError, accountRows, taskRows, normalize, projectIds, projectEntries, cleanCitationMarkers });
 });
