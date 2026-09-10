@@ -170,6 +170,9 @@ button { cursor: pointer; }
 .viewer-retry { margin-left: 10px; border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 8px; padding: 2px 10px; font-size: 12px; }
 .viewer-jump { position: absolute; right: 16px; bottom: 14px; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); font-size: 15px; box-shadow: var(--card-shadow); }
 .viewer-jump:hover { background: var(--row-hover); }
+.viewer-nav { border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 8px; padding: 3px 9px; font-size: 13px; }
+.viewer-nav:hover:not(:disabled) { background: var(--row-hover); }
+.viewer-nav:disabled { color: var(--text-faint); }
 .notice { position: relative; }
 .notice-close { position: absolute; top: 6px; right: 10px; border: none; background: transparent; color: inherit; font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
 .notice-close:hover { background: rgba(0, 0, 0, .08); }

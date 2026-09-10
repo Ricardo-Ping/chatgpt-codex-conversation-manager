@@ -155,6 +155,8 @@ const en: Record<string, string> = {
   "开机时自动启动": "Start when you sign in",
   "重试": "Retry",
   "跳转最新": "Jump to latest",
+  "上一个": "Previous",
+  "下一个": "Next",
   "默认自动检查更新": "Check for updates automatically",
   "立即检查": "Check now",
   "下载更新": "Download update",

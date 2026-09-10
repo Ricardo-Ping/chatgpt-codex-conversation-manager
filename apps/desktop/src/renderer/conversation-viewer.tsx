@@ -57,7 +57,7 @@ function roleLabel(role: string): string { for (const [pattern, key] of ROLE_KEY
 
 export function relativeTime(value: number): string { const seconds = Math.max(0, Math.round((Date.now() - value) / 1000)); return seconds < 60 ? t("刚刚") : seconds < 3600 ? t("{n} 分钟前", { n: Math.floor(seconds / 60) }) : seconds < 86400 ? t("{n} 小时前", { n: Math.floor(seconds / 3600) }) : seconds < 7 * 86400 ? t("{n} 天前", { n: Math.floor(seconds / 86400) }) : new Date(value).toLocaleDateString(); }
 
-export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; subtitle?: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; onClose(): void; onOpenExternal(): void; onRetry?(): void }) {
+export const ConversationViewerPanel = memo(function ConversationViewerPanel(props: { title: string; subtitle?: string; messages: ViewerMessage[]; loading: boolean; error: string; externalLabel: string; hasPrev?: boolean; hasNext?: boolean; onPrev?(): void; onNext?(): void; onClose(): void; onOpenExternal(): void; onRetry?(): void }) {
   const rendered = useMemo(() => props.messages.map((message) => ({ role: message.role, at: message.at, html: renderMarkdown(message.text) })), [props.messages]);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [copiedAll, setCopiedAll] = useState(false);
@@ -73,6 +73,8 @@ export const ConversationViewerPanel = memo(function ConversationViewerPanel(pro
   };
   return <aside className="viewer-panel" role="dialog" aria-label={t("会话内容")}>
     <div className="viewer-head">
+      {!props.hasPrev && !props.hasNext ? null : <button type="button" className="viewer-nav" aria-label={t("上一个")} disabled={!props.hasPrev} onClick={props.onPrev}>‹</button>}
+      {!props.hasPrev && !props.hasNext ? null : <button type="button" className="viewer-nav" aria-label={t("下一个")} disabled={!props.hasNext} onClick={props.onNext}>›</button>}
       <strong title={props.subtitle ? `${props.title} · ${props.subtitle}` : props.title}>{props.title}</strong>
       {!props.loading && !props.error && props.messages.length > 0 && <small className="viewer-count">{t("{n} 条消息", { n: props.messages.length })}</small>}
       {!props.loading && !props.error && props.messages.length > 0 && <button type="button" onClick={copyAll}>{copiedAll ? t("已复制全文") : t("复制全文")}</button>}
