@@ -275,3 +275,26 @@ button { cursor: pointer; }
   .settings-grid { grid-template-columns: 1fr; }
   .list-head, .row { grid-template-columns: 38px minmax(220px, 1fr) 90px; }
 }
+
+/* 统计洞察页 */
+.stats-page { display: grid; gap: 16px; }
+.stats-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.stats-head h1 { font-size: 26px; margin: 0 0 5px; color: var(--heading); }
+.stats-scope { margin: 0; color: var(--text-muted); font-size: 13px; }
+.stats-refresh { border: 1px solid var(--border-strong); background: var(--surface); color: var(--brand-text); font-size: 13px; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; }
+.stats-refresh:hover:not(:disabled) { background: var(--brand-hover); }
+.stats-refresh:disabled { opacity: .55; cursor: default; }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 14px; }
+.kpi-card { padding: 18px 20px; background: var(--surface-solid); border: 1px solid var(--border-card); border-radius: 16px; box-shadow: var(--card-shadow); display: grid; gap: 4px; }
+.kpi-card strong { font-size: 26px; color: var(--heading); letter-spacing: -.01em; }
+.kpi-card:first-child strong { color: var(--brand-text); }
+.kpi-card span { color: var(--text-muted); font-size: 12.5px; }
+.stats-card { padding: 20px 22px; background: var(--surface-solid); border: 1px solid var(--border-card); border-radius: 16px; box-shadow: var(--card-shadow); }
+.stats-card h2 { font-size: 15px; margin: 0 0 12px; color: var(--heading); }
+.stats-row { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 16px; }
+.insight-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.insight-list button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; font-size: 13px; color: var(--text); background: var(--brand-soft); border: 1px solid transparent; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+.insight-list button:hover { background: var(--brand-hover); border-color: var(--border-strong); }
+.insight-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+.insight-empty { color: var(--text-muted); font-size: 13px; margin: 0; }
+@media (max-width: 1100px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } .stats-row { grid-template-columns: 1fr; } }

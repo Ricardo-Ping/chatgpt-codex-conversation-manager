@@ -26,6 +26,7 @@
     "@conversation-manager/codex-app-server-adapter": "workspace:*",
     "@conversation-manager/conversation-domain": "workspace:*",
     "dompurify": "^3.4.15",
+    "echarts": "^6.1.0",
     "electron-updater": "6.8.9",
     "fflate": "^0.8.3",
     "highlight.js": "^11.12.0",

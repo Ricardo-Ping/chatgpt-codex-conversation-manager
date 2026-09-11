@@ -9,11 +9,12 @@ import { initialLanguage, setLanguage, t, type Lang } from "./strings.js";
 import { Segmented } from "./segmented.js";
 import { friendlyError, message } from "./ui-format.js";
 import { Settings, useExtensionDirectory, ExtensionPath } from "./settings.js";
+import { StatsPage } from "./stats.js";
 import iconUrl from "./icon.png";
 import "./styles.css";
 import "./project-groups.css";
 
-type Page = "chatgpt" | "codex" | "settings";
+type Page = "chatgpt" | "codex" | "stats" | "settings";
 type Account = { key: string; label: string; isDefault: boolean };
 type ConfirmOptions = { title: string; body: string; items?: string[]; requireCount?: number };
 const ageOptions: Array<[AgeFilter, string]> = [["all", "全部"], ["day", "1 天前"], ["week", "1 周前"], ["month", "1 个月前"], ["halfYear", "半年前"]];
@@ -49,8 +50,9 @@ function App() {
       <nav className="side-nav" aria-label={t("会话状态")}>
         <button type="button" className={`side-item ${page === "chatgpt" ? "active" : ""}`} aria-current={page === "chatgpt" ? "page" : undefined} onClick={() => openWorkspace("chatgpt")}><span className={`dot ${bridgeDot}`} title={extensionMismatch ? t("浏览器扩展为 v{ext}，与主程序 v{app} 不一致，请在 chrome://extensions 中重新加载", { ext: bridge.extensionVersion ?? "", app: version }) : bridge.connected ? t("桥接已连接") : bridge.paired ? t("已配对，等待浏览器") : t("未配对")}></span>ChatGPT</button>
         <button type="button" className={`side-item ${page === "codex" ? "active" : ""}`} aria-current={page === "codex" ? "page" : undefined} onClick={() => openWorkspace("codex")}><span className={`dot ${codexReady === true ? "ok" : codexReady === false ? "off" : "wait"}`} title={codexReady === true ? t("App Server 已连接") : codexReady === false ? t("未连接") : t("检测中")}></span>Codex</button>
+        <button type="button" className={`side-item ${page === "stats" ? "active" : ""}`} aria-current={page === "stats" ? "page" : undefined} onClick={() => setPage("stats")}><span aria-hidden="true">📊</span>{t("统计")}</button>
       </nav>
-      {page !== "settings" && <div className="side-states">
+      {page !== "settings" && page !== "stats" && <div className="side-states">
         <p className="side-states-label">{t("会话状态")}</p>
         <Segmented vertical value={page === "codex" ? workspaceStates.codex : workspaceStates.chatgpt} options={(page === "codex" ? (["active", "archived"] as ConversationState[]) : (["active", "archived", "scheduled"] as ConversationState[])).map((value) => { const split = chatCounts[value]; const count = page === "chatgpt" ? (split ? (workspaceKinds.chatgpt === "work" ? split.work : split.chat) : undefined) : codexCounts[value]; return [value, <React.Fragment key={value}>{t(stateLabels[value])}{typeof count === "number" && <span className="count">{count}</span>}</React.Fragment>] as [ConversationState, React.ReactNode]; })} onChange={setWorkspaceState} aria-label={t("会话状态")}/>
       </div>}
@@ -63,7 +65,7 @@ function App() {
         <small className="side-version">v{version} · Ricardo_Ping</small>
       </div>
     </aside>
-    <main className="content">{page === "chatgpt" ? <ChatGptWorkspace bridge={bridge} state={workspaceStates.chatgpt} onState={(value) => setWorkspaceStates((old) => ({ ...old, chatgpt: value }))} kind={workspaceKinds.chatgpt} onKind={(value) => setWorkspaceKinds({ chatgpt: value })} onCounts={setChatCounts} /> : page === "codex" ? <CodexWorkspace onStatus={reportCodexStatus} state={workspaceStates.codex} onState={(value) => setWorkspaceStates((old) => ({ ...old, codex: value }))} onCounts={setCodexCounts} /> : <Settings version={version} lang={lang} onLanguage={changeLanguage} onCodexStatus={reportCodexStatus} />}</main>
+    <main className="content">{page === "chatgpt" ? <ChatGptWorkspace bridge={bridge} state={workspaceStates.chatgpt} onState={(value) => setWorkspaceStates((old) => ({ ...old, chatgpt: value }))} kind={workspaceKinds.chatgpt} onKind={(value) => setWorkspaceKinds({ chatgpt: value })} onCounts={setChatCounts} /> : page === "codex" ? <CodexWorkspace onStatus={reportCodexStatus} state={workspaceStates.codex} onState={(value) => setWorkspaceStates((old) => ({ ...old, codex: value }))} onCounts={setCodexCounts} /> : page === "stats" ? <StatsPage onNavigate={openWorkspace} /> : <Settings version={version} lang={lang} onLanguage={changeLanguage} onCodexStatus={reportCodexStatus} />}</main>
   </div>;
 }
 
