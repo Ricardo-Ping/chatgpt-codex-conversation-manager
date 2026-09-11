@@ -2,13 +2,14 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shel
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants as fsConstants } from "node:fs";
-import { mkdir, copyFile, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, copyFile, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import electronUpdater from "electron-updater";
 import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode, type CachedConversation } from "@conversation-manager/chatgpt-bridge-server";
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { discoverCodexCommands } from "./codex-discovery.js";
+import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, downloadMacArchive, fetchMacRelease, macAppBundlePath, swapMacBundle, type MacUpdateCheck } from "./mac-updater.js";
 import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
@@ -275,7 +276,25 @@ function threadLike(item: { id: string; title: string; preview: string; cwd: str
 ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? M().codexConnectedLocal : M().codexConnectedBundled) : M().codexNotFound, command: codexCommand }; });
 ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const dialogOptions: Electron.OpenDialogOptions = { title: M().pickCodexExe, properties: ["openFile"] }; if (process.platform !== "darwin") dialogOptions.filters = [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }]; const result = await dialog.showOpenDialog(mainWindow, dialogOptions); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
 ipcMain.handle("codex:list", async (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return codex.list({ cursor: typeof input.cursor === "string" ? input.cursor : null, limit: 100, archived: input.archived === true, searchTerm: typeof input.searchTerm === "string" ? input.searchTerm.slice(0, 200) : null, full: input.full === true }); });
-ipcMain.handle("codex:open", async (event, value) => { requireRenderer(event); const id = requireId(value); try { const child = process.platform === "win32" ? spawn("powershell.exe", ["-NoExit", "-EncodedCommand", Buffer.from(`& '${codexCommand.replaceAll("'", "''")}' resume '${id}'`, "utf16le").toString("base64")], { detached: true, stdio: "ignore", windowsHide: false }) : spawn(codexCommand, ["resume", id], { detached: true, stdio: "ignore" }); child.unref(); return { opened: true }; } catch { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; } });
+ipcMain.handle("codex:open", async (event, value) => {
+  requireRenderer(event);
+  const id = requireId(value);
+  const fallback = () => { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; };
+  try {
+    // 保存的命令可能因客户端升级失效（版本化目录被替换），先验证再启动
+    if (codexCommand !== "codex") await stat(codexCommand);
+    const target = terminalResumeSpawn(codexCommand, id);
+    // Windows/macOS 启动器是短命进程：退出码非 0 说明启动终端失败；Linux 直接跑 TUI，不会退出，靠超时判成功
+    const opened = await new Promise<boolean>((resolve) => {
+      const child = spawn(target.file, target.args, target.options);
+      child.unref();
+      child.once("error", () => resolve(false));
+      if (process.platform !== "linux") child.once("exit", (code) => resolve(code === 0));
+      setTimeout(() => resolve(true), 4000);
+    });
+    return opened ? { opened: true } : fallback();
+  } catch { return fallback(); }
+});
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || M().unnamedTask, derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
 ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const id = requireId(input.id);
