@@ -25,6 +25,7 @@
     "@conversation-manager/chatgpt-bridge-server": "workspace:*",
     "@conversation-manager/codex-app-server-adapter": "workspace:*",
     "@conversation-manager/conversation-domain": "workspace:*",
+    "@tanstack/react-virtual": "^3.14.11",
     "dompurify": "^3.4.15",
     "echarts": "^6.1.0",
     "electron-updater": "6.8.9",

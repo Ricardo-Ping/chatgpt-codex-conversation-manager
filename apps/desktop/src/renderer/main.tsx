@@ -1,6 +1,7 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { bulkSelectableIds, dedupeById, filterConversations, type AgeFilter, type ConversationState, type ManagedConversation } from "@conversation-manager/conversation-domain";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { CachedConversation, PairingState } from "@conversation-manager/chatgpt-bridge-server";
 import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
 import { groupChatGptConversations, groupCodexConversations, isFolderGrouped, isProjectTask } from "./codex-groups.js";
@@ -158,16 +159,29 @@ function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(avai
 }
 
 function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subtitle: string; emptyHint: string; kind?: "chat" | "work"; onKind?(value: "chat" | "work"): void; onOpenExternal?(): void; onExport?(ids: string[]): Promise<string>; accounts?: Account[]; accountKey?: string; onAccount?(key: string): void; state: ConversationState; onState(state: ConversationState): void; records: ManagedConversation[]; projectNames?: Record<string, string>; projects?: Array<{ id: string; name: string }>; projectsLoading?: boolean; onReloadProjects?(): void; onProjectMove?(record: ManagedConversation, projectId: string | null): void | Promise<void>; onReadConversation?(record: ManagedConversation): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; onBatchProjectMove?(ids: string[], projectId: string | null, records: ManagedConversation[]): Promise<void>; onDismissNotice?(): void; sourceName: string; writable: boolean; refreshable: boolean; loading: boolean; error: string; notice: string; onRefresh(): void | Promise<void>; onOpen(record: ManagedConversation): void | Promise<void>; onCancel?(): Promise<{ cancelled: boolean }>; onBatch(action: "archive" | "restore" | "delete", ids: string[]): Promise<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] } | null> }) {
-  const [query, setQuery] = useState(""); const deferredQuery = useDeferredValue(query); const [age, setAge] = useState<AgeFilter>("all"); const [sort, setSort] = useState<"newest" | "oldest">("newest"); const [selected, setSelected] = useState<Set<string>>(new Set()); const [busy, setBusy] = useState(false); const [localNotice, setLocalNotice] = useState(""); const [limit, setLimit] = useState(100); const [focusId, setFocusId] = useState<string | null>(null); const [menu, setMenu] = useState<{ x: number; y: number; record: ManagedConversation } | null>(null);
+  const [query, setQuery] = useState(""); const deferredQuery = useDeferredValue(query); const [age, setAge] = useState<AgeFilter>("all"); const [sort, setSort] = useState<"newest" | "oldest">("newest"); const [selected, setSelected] = useState<Set<string>>(new Set()); const [busy, setBusy] = useState(false); const [localNotice, setLocalNotice] = useState(""); const [focusId, setFocusId] = useState<string | null>(null); const [menu, setMenu] = useState<{ x: number; y: number; record: ManagedConversation } | null>(null);
   const [folderExclusions, setFolderExclusions] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem("cm-codex-folder-exclusions") || "[]") as string[]); } catch { return new Set(); } });
   const toggleFolderExclusion = useCallback((id: string, excluded: boolean) => setFolderExclusions((old) => { const next = new Set(old); if (excluded) next.add(id); else next.delete(id); try { localStorage.setItem("cm-codex-folder-exclusions", JSON.stringify([...next])); } catch {} return next; }), []);
   const [viewer, setViewer] = useState<{ record: ManagedConversation; title: string; messages: Array<{ role: string; at: number | null; text: string }>; loading: boolean; error: string } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null); const listRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { setSelected(new Set()); setLimit(100); setFocusId(null); }, [props.state, props.accountKey, age, props.kind]);
-  const visible = useMemo(() => filterConversations(props.records, { state: props.state, query: deferredQuery, age }).sort((a, b) => sort === "newest" ? (b.updatedAt ?? 0) - (a.updatedAt ?? 0) : (a.updatedAt ?? 0) - (b.updatedAt ?? 0)), [props.records, props.state, deferredQuery, age, sort]); const shown = useMemo(() => visible.slice(0, limit), [visible, limit]); const selectable = bulkSelectableIds(visible); const allSelected = selectable.length > 0 && selectable.every((id) => selected.has(id));
-  const groups = useMemo(() => props.source === "codex" ? groupCodexConversations(shown, folderExclusions) : props.kind === "work" ? groupChatGptConversations(shown, props.projectNames) : null, [shown, props.source, props.kind, props.projectNames, folderExclusions]);
+  useEffect(() => { setSelected(new Set()); setFocusId(null); }, [props.state, props.accountKey, age, props.kind]);
+  const visible = useMemo(() => filterConversations(props.records, { state: props.state, query: deferredQuery, age }).sort((a, b) => sort === "newest" ? (b.updatedAt ?? 0) - (a.updatedAt ?? 0) : (a.updatedAt ?? 0) - (b.updatedAt ?? 0)), [props.records, props.state, deferredQuery, age, sort]); const selectable = bulkSelectableIds(visible); const allSelected = selectable.length > 0 && selectable.every((id) => selected.has(id));
+  const groups = useMemo(() => props.source === "codex" ? groupCodexConversations(visible, folderExclusions) : props.kind === "work" ? groupChatGptConversations(visible, props.projectNames) : null, [visible, props.source, props.kind, props.projectNames, folderExclusions]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem(`cm-collapsed-groups:${props.source}`) || "[]") as string[]); } catch { return new Set(); } });
   const toggleGroup = (key: string, open: boolean) => setCollapsedGroups((old) => { const next = new Set(old); if (open) next.delete(key); else next.add(key); try { localStorage.setItem(`cm-collapsed-groups:${props.source}`, JSON.stringify([...next])); } catch {} return next; });
+  // 虚拟滚动：把分组头与行摊平成一个线性列表交给 useVirtualizer，只渲染视口内的条目
+  type ListItem = { type: "header"; key: string; name: string; count: number; path: string | null; open: boolean } | { type: "row"; key: string; record: ManagedConversation };
+  const listItems = useMemo<ListItem[]>(() => {
+    if (!groups) return visible.map((record) => ({ type: "row" as const, key: record.id, record }));
+    const list: ListItem[] = [];
+    for (const group of groups) {
+      const open = !collapsedGroups.has(group.key);
+      list.push({ type: "header", key: group.key, name: group.name, count: group.records.length, path: group.path ?? null, open });
+      if (open) for (const record of group.records) list.push({ type: "row", key: record.id, record });
+    }
+    return list;
+  }, [groups, visible, collapsedGroups]);
+  const virtualizer = useVirtualizer({ count: listItems.length, getScrollElement: () => listRef.current, estimateSize: (index) => listItems[index]?.type === "header" ? 40 : 62, overscan: 8, getItemKey: (index) => listItems[index]?.key ?? String(index) });
   const toggleOne = (id: string) => setSelected((old) => { const next = new Set(old); if (next.has(id)) { next.delete(id); } else { next.add(id); } return next; });
   async function batch(action: "archive" | "restore" | "delete") { const ids = [...selected]; if (!ids.length) return; setBusy(true); setLocalNotice(""); try { const result = await props.onBatch(action, ids); if (!result) return; setSelected(new Set([...result.failed.map((item) => item.id), ...(result.unprocessed || [])])); setLocalNotice(t("完成：成功 {s}，失败 {f}，未处理 {u}", { s: result.succeeded.length, f: result.failed.length, u: result.unprocessed?.length || 0 })); } catch (cause) { setLocalNotice(`${t("操作失败")}：${message(cause)}`); } finally { setBusy(false); } }
   const runRefresh = () => { setLocalNotice(""); return Promise.resolve(props.onRefresh()); };
@@ -197,7 +211,18 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
     return <div className={`row ${selected.has(record.id) ? "selected" : ""} ${focusId === record.id ? "focused" : ""}`} key={record.id} onClick={() => { if (selectableRow && !busy) toggleOne(record.id); }} onContextMenu={(event) => { if (!props.onProjectMove) return; event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY, record }); }} onDoubleClick={() => openViewer(record)}>
       <label className="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => toggleOne(record.id)}/><span></span></label>
       <button type="button" className="row-main" onFocus={() => setFocusId(record.id)} onKeyDown={(event) => {
-        if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const rows = listRef.current ? Array.from(listRef.current.querySelectorAll<HTMLButtonElement>(".row-main")) : []; const index = rows.indexOf(event.currentTarget); const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)]; if (next) { next.focus({ preventScroll: true }); next.closest(".row")?.scrollIntoView({ block: "nearest" }); } }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const wrapper = event.currentTarget.closest("[data-idx]") as HTMLElement | null;
+          const direction = event.key === "ArrowDown" ? 1 : -1;
+          let next = (wrapper ? Number(wrapper.dataset.idx) : -1) + direction;
+          let target: Extract<ListItem, { type: "row" }> | undefined;
+          while (next >= 0 && next < listItems.length) { const candidate = listItems[next]; if (candidate && candidate.type === "row") { target = candidate; break; } next += direction; }
+          if (!target) return;
+          virtualizer.scrollToIndex(next, { align: "auto" });
+          setFocusId(target.record.id);
+          requestAnimationFrame(() => { listRef.current?.querySelector<HTMLButtonElement>(`[data-idx="${next}"] .row-main`)?.focus({ preventScroll: true }); });
+        }
         else if (event.key === " " && selectableRow && !busy) { event.preventDefault(); toggleOne(record.id); }
         else if (event.key === "Enter") { event.preventDefault(); openViewer(record); }
       }} title={t("单击选中 · 双击打开")}>
@@ -213,14 +238,24 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
       <div className="toolbar"><input ref={searchRef} className="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("搜索标题（按 / 聚焦）")} aria-label={t("搜索标题")}/>{props.onKind && <Segmented value={props.kind ?? "chat"} options={[["chat", t("聊天")], ["work", t("工作")]] as Array<["chat" | "work", string]>} onChange={props.onKind} aria-label={t("会话类型")}/>}<Segmented<AgeFilter> className="age-filter" value={age} options={ageOptions.map(([value, label]) => [value, t(label)] as [AgeFilter, string])} onChange={setAge} aria-label={t("时间范围")}/><select className="refresh" value={sort} onChange={(event) => setSort(event.target.value as "newest" | "oldest")} aria-label={t("排序")}><option value="newest">{t("最新优先")}</option><option value="oldest">{t("最早优先")}</option></select></div>
       {(props.error || props.notice || localNotice) && <div className={`notice ${props.error ? "error" : ""}`}>{props.error || localNotice || props.notice}<button type="button" className="notice-close" aria-label={t("关闭")} onClick={() => { setLocalNotice(""); props.onDismissNotice?.(); }}>×</button></div>}
       <div className="list-with-viewer">
-      <div className="list" ref={listRef} onScroll={(event) => { const node = event.currentTarget; if (node.scrollTop + node.clientHeight >= node.scrollHeight - 120) setLimit((old) => Math.min(old + 100, visible.length)); }}>
+      <div className="list" ref={listRef}>
         <div className="list-head"><span></span><span>{t("{n} 条结果", { n: visible.length })}</span><span>{t("最后更新")}</span></div>
-        {groups ? groups.map((group) => <details className="project-group" open={!collapsedGroups.has(group.key)} onToggle={(event) => { const open = (event.target as HTMLDetailsElement).open; if (open === collapsedGroups.has(group.key)) toggleGroup(group.key, open); }} key={group.key}><summary><span>📁 {t(group.name)}</span><small>{t("{n} 条", { n: group.records.length })}{group.path ? ` · ${group.path}` : ""}</small></summary>{group.records.map(renderRow)}</details>) : shown.map(renderRow)}
-        {!props.loading && !shown.length && (props.records.length === 0
+        <div className="virtual-body" style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const item = listItems[virtualRow.index];
+            if (!item) return null;
+            return <div key={virtualRow.key} data-idx={virtualRow.index} ref={virtualizer.measureElement} className="virtual-item" style={{ transform: `translateY(${virtualRow.start}px)` }}>
+              {item.type === "header"
+                ? <button type="button" className={`group-header-row ${item.open ? "open" : ""}`} onClick={() => toggleGroup(item.key, !item.open)}><span>📁 {t(item.name)}</span><small>{t("{n} 条", { n: item.count })}{item.path ? ` · ${item.path}` : ""}</small></button>
+                : renderRow(item.record)}
+            </div>;
+          })}
+        </div>
+        {!props.loading && !visible.length && (props.records.length === 0
           ? <div className="empty"><strong>{props.source === "chatgpt" ? t("还没有同步过会话") : t("还没有读取到任务")}</strong><small>{props.emptyHint}</small>{props.refreshable && <button onClick={() => void runRefresh()}>{t("完整刷新")}</button>}</div>
           : <div className="empty"><strong>{t("当前筛选下没有记录")}</strong><small>{t("换个搜索关键词，或放宽时间范围再试。")}</small><button onClick={() => { setQuery(""); setAge("all"); }}>{t("清除筛选")}</button></div>)}
       </div>
-      {viewer && <ConversationViewerPanel title={viewer.title} subtitle={props.source === "codex" ? viewer.record.cwd ?? undefined : undefined} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在应用中打开") : t("在浏览器打开")} sourceName={props.source === "chatgpt" ? "ChatGPT" : "Codex"} hasPrev={shown.findIndex((item) => item.id === viewer.record.id) > 0} hasNext={(() => { const index = shown.findIndex((item) => item.id === viewer.record.id); return index !== -1 && index < shown.length - 1; })()} onPrev={() => { const index = shown.findIndex((item) => item.id === viewer.record.id); const target = index > 0 ? shown[index - 1] : undefined; if (target) openViewer(target); }} onNext={() => { const index = shown.findIndex((item) => item.id === viewer.record.id); const target = index !== -1 && index < shown.length - 1 ? shown[index + 1] : undefined; if (target) openViewer(target); }} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} onRetry={() => openViewer(viewer.record)} />}
+      {viewer && <ConversationViewerPanel title={viewer.title} subtitle={props.source === "codex" ? viewer.record.cwd ?? undefined : undefined} messages={viewer.messages} loading={viewer.loading} error={viewer.error} externalLabel={props.source === "codex" ? t("在应用中打开") : t("在浏览器打开")} sourceName={props.source === "chatgpt" ? "ChatGPT" : "Codex"} hasPrev={visible.findIndex((item) => item.id === viewer.record.id) > 0} hasNext={(() => { const index = visible.findIndex((item) => item.id === viewer.record.id); return index !== -1 && index < visible.length - 1; })()} onPrev={() => { const index = visible.findIndex((item) => item.id === viewer.record.id); const target = index > 0 ? visible[index - 1] : undefined; if (target) openViewer(target); }} onNext={() => { const index = visible.findIndex((item) => item.id === viewer.record.id); const target = index !== -1 && index < visible.length - 1 ? visible[index + 1] : undefined; if (target) openViewer(target); }} onClose={() => setViewer(null)} onOpenExternal={() => void props.onOpen(viewer.record)} onRetry={() => openViewer(viewer.record)} />}
       </div>
       <div className="actionbar">
         <div><strong>{t("已选 {n} 条", { n: selected.size })}</strong><span>{props.state === "scheduled" ? t("已安排会话请在 ChatGPT 官方页面管理") : props.writable ? t("操作只影响当前筛选与选择") : t("只读状态")}</span></div>
