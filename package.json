@@ -12,6 +12,7 @@
   },
   "packageManager": "pnpm@11.19.0",
   "scripts": {
+    "audit:i18n": "node scripts/audit-i18n.mjs",
     "build": "pnpm -r --if-present build",
     "dev": "pnpm --filter @conversation-manager/desktop dev",
     "lint": "eslint --max-warnings 10 apps/desktop/src packages/chatgpt-bridge-server/src packages/codex-app-server-adapter/src packages/conversation-domain/src companion-plugin/mcp/src packages/chatgpt-browser-bridge-extension/background.js packages/chatgpt-browser-bridge-extension/bridge-core.js packages/chatgpt-browser-bridge-extension/content.js packages/chatgpt-browser-bridge-extension/popup.js",
