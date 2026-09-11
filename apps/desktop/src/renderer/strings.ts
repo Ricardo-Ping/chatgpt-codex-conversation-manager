@@ -165,7 +165,7 @@ const en: Record<string, string> = {
   "跳转顶部": "Jump to top",
   "已移动 {n} 条会话": "Moved {n} conversation(s)",
   "已导出 {n} 个数据文件到 {dir}": "Exported {n} data file(s) to {dir}",
-  "已恢复 {n} 个数据文件": "Restored {n} data file(s)",
+  "已恢复 {n} 个数据文件（缓存与部分设置在重启后完全生效）": "Restored {n} data file(s). The cache and some settings fully apply after a restart.",
   "导出或恢复应用数据（缓存索引、偏好设置），用于备份或迁移到其他设备。": "Export or restore app data (cache index, preferences) for backup or migration to another device.",
   "Codex 会话迁移": "Codex session migration",
   "把本机全部 Codex 会话打包为 zip，在其他电脑导入后即可继续这些会话；不包含登录凭据。": "Pack every local Codex session into a zip archive; import it on another computer to continue those sessions. Credentials are not included.",

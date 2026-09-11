@@ -14,6 +14,21 @@ function cleanCodexCitations(text: string): string {
   });
 }
 
+// ~/.codex 白名单：本地路径仅当位于 Codex 存档目录下才允许改写为 file:/// 展示。
+// home 由主进程通过 codex:status 提供；未取得前一律不改写（安全默认）。
+let codexHomeCache: string | null = null;
+let codexHomeRequested = false;
+function isInsideCodexHome(src: string): boolean {
+  if (!codexHomeRequested) {
+    codexHomeRequested = true;
+    void window.conversationManager.codex.status().then((value) => { codexHomeCache = value.home ?? null; }).catch(() => {});
+  }
+  if (!codexHomeCache) return false;
+  const normalized = src.replaceAll("\\", "/").toLowerCase();
+  const home = codexHomeCache.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
+  return normalized.startsWith(`${home}/`) || /\/\.codex\//.test(normalized);
+}
+
 // 生成 wolai 风格的代码块：头部（语言标签 + 复制按钮）与代码主体一体渲染，
 // 语言未知时用 highlight.js 自动检测；复制按钮通过事件委托响应点击
 export function renderMarkdown(text: string): string {
@@ -59,7 +74,9 @@ export function renderMarkdown(text: string): string {
   container.querySelectorAll("img").forEach((image) => {
     image.setAttribute("loading", "lazy");
     const src = image.getAttribute("src") || "";
-    if (/^[A-Za-z]:[\\/]/.test(src) && !src.startsWith("file://")) {
+    // 本地路径仅当位于 ~/.codex 下时才改写为 file:/// 显示；其余保持原样，
+    // 避免把消息里出现的任意本地文件路径变成可被加载的本地资源
+    if (/^[A-Za-z]:[\\/]/.test(src) && !src.startsWith("file://") && isInsideCodexHome(src)) {
       image.setAttribute("src", "file:///" + src.replace(/\\/g, "/"));
     }
   });

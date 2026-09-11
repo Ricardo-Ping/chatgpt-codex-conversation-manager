@@ -10,7 +10,6 @@ declare global {
   interface Window { conversationManager: {
     appVersion(): Promise<string>;
     openExternal(url: string): Promise<void>;
-    appLanguage: "zh" | "en";
     setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
     dialog: { pickDirectory(payload?: { defaultPath?: string }): Promise<{ directory: string | null }> };
     chatgpt: {
@@ -28,7 +27,7 @@ declare global {
       exportSessions(payload: { accountKey: string; directory: string; items: Array<{ id: string; title: string }> }): Promise<{ saved: number; failed: Array<{ id: string; message: string }>; directory: string }>;
     };
     codex: {
-      status(): Promise<{ available: boolean; message: string; command: string }>;
+      status(): Promise<{ available: boolean; message: string; command: string; home: string }>;
       selectCommand(): Promise<{ selected: boolean; command: string }>;
       list(params: { cursor?: string | null; archived?: boolean; searchTerm?: string; full?: boolean }): Promise<ThreadListResponse>;
       read(threadId: string): Promise<{ messages: Array<{ role: string; at: number | null; text: string }> }>;

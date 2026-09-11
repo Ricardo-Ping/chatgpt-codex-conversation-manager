@@ -3,7 +3,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/node_modules/**", "**/dist/**", "**/release/**", "**/.mimosa/**", "docs/**", "scripts/**", "**/*.cjs", "**/*.mjs"] },
+  { ignores: ["**/node_modules/**", "**/dist/**", "**/release/**", "**/coverage/**", "**/.mimosa/**", "**/.agents/**", "**/.github/**", "docs/**", "scripts/**", "**/*.cjs", "**/*.mjs"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -34,5 +34,16 @@ export default tseslint.config(
         console: "readonly", crypto: "readonly", TextEncoder: "readonly", module: "readonly", require: "readonly", globalThis: "readonly"
       }
     }
+  },
+  {
+    // 扩展测试是 CommonJS 风格的 node:test 脚本，允许 require 与 Node 全局
+    files: ["packages/chatgpt-browser-bridge-extension/tests/**/*.js"],
+    languageOptions: {
+      globals: {
+        require: "readonly", module: "readonly", global: "readonly", console: "readonly",
+        setTimeout: "readonly", clearTimeout: "readonly", crypto: "readonly", TextEncoder: "readonly", globalThis: "readonly"
+      }
+    },
+    rules: { "@typescript-eslint/no-require-imports": "off" }
   }
 );

@@ -49,4 +49,35 @@ if (missingInEn.length > 0) {
   console.error(`\ni18n audit FAILED: ${missingInEn.length} key(s) have no English translation.`);
   process.exit(1);
 }
-console.log("\ni18n audit passed: every t() key has an English translation.");
+
+// 主进程词典（MAIN_STRINGS）：zh/en 两块结构相同、按属性名索引，校验键集合一致。
+// 类型系统已约束，这里作为 CI 可见的冗余守卫，防止有人把类型注解放宽后悄悄漏译。
+const mainStringsPath = "apps/desktop/src/main/strings.ts";
+const mainSrc = fs.readFileSync(mainStringsPath, "utf8");
+function blockKeys(startMarker) {
+  const start = mainSrc.indexOf(startMarker);
+  if (start === -1) return null;
+  const end = mainSrc.indexOf("\n};", start);
+  const block = mainSrc.slice(start, end);
+  const keys = new Set();
+  const keyRe = /^\s{2}(\w+):/gm;
+  let km;
+  while ((km = keyRe.exec(block))) keys.add(km[1]);
+  return keys;
+}
+const mainZhKeys = blockKeys("const zh: MainStrings = {");
+const mainEnKeys = blockKeys("const en: MainStrings = {");
+if (!mainZhKeys || !mainEnKeys) {
+  console.error(`i18n audit FAILED: cannot locate zh/en blocks in ${mainStringsPath}`);
+  process.exit(1);
+}
+const zhOnly = [...mainZhKeys].filter((k) => !mainEnKeys.has(k));
+const enOnly = [...mainEnKeys].filter((k) => !mainZhKeys.has(k));
+if (zhOnly.length || enOnly.length) {
+  console.error(`\nmain i18n audit FAILED: zh/en key mismatch in ${mainStringsPath}`);
+  if (zhOnly.length) console.error(`  zh only: ${zhOnly.join(", ")}`);
+  if (enOnly.length) console.error(`  en only: ${enOnly.join(", ")}`);
+  process.exit(1);
+}
+
+console.log("\ni18n audit passed: every t() key has an English translation; main zh/en dictionaries match.");

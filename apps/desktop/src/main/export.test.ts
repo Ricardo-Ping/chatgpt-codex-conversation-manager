@@ -13,9 +13,9 @@ describe("safeFileName", () => {
 });
 
 describe("extractChatGptImageUrls", () => {
-  it("extracts unique http(s) image urls and skips other schemes", () => {
-    const markdown = "![](https://a/x.png)\n![b](https://a/x.png)\n![c](http://b/y.jpeg) ![x](ftp://z/e.png)";
-    expect(extractChatGptImageUrls(markdown)).toEqual(["https://a/x.png", "http://b/y.jpeg"]);
+  it("extracts unique https image urls and skips non-https schemes", () => {
+    const markdown = "![](https://a/x.png)\n![b](https://a/x.png)\n![c](http://b/y.jpeg) ![x](ftp://z/e.png) ![f](file://C:/secret.png)";
+    expect(extractChatGptImageUrls(markdown)).toEqual(["https://a/x.png"]);
   });
   it("returns empty for markdown without images", () => {
     expect(extractChatGptImageUrls("no images here")).toEqual([]);

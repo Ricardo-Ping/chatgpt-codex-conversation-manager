@@ -8,10 +8,13 @@ import { logInfo } from "./logger.js";
 import { requireRenderer } from "./ipc-sanitize.js";
 
 // 偏好设置与数据备份类 handler：主题、开机启动、数据导出/恢复、Codex 会话迁移、目录选择。
-// main.ts 注入窗口引用用于弹窗与发送方校验。
+// main.ts 注入窗口引用用于弹窗与发送方校验；导入完成后通过 reloadIndex 重载内存中的
+// 会话索引，避免后续 #save() 用旧内存状态覆盖刚导入的数据。
 let getWindow: () => BrowserWindow | null = () => null;
-export function initPreferences(deps: { getMainWindow: () => BrowserWindow | null }): void {
+let reloadIndex: () => Promise<void> = async () => {};
+export function initPreferences(deps: { getMainWindow: () => BrowserWindow | null; reloadIndex: () => Promise<void> }): void {
   getWindow = deps.getMainWindow;
+  reloadIndex = deps.reloadIndex;
 }
 
 export type ThemePreference = "system" | "light" | "dark";
@@ -51,6 +54,7 @@ export function registerPreferenceHandlers(): void {
     const userData = app.getPath("userData");
     let restored = 0;
     for (const file of BACKUP_FILES) { try { await copyFile(join(directory, file), join(userData, file)); restored += 1; } catch {} }
+    if (restored) await reloadIndex();
     return { restored };
   });
   ipcMain.handle("codex:export-sessions-archive", async (event) => {

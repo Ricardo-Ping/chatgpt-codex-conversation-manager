@@ -1,7 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
-const core = require("../bridge-core.js");
 
 test("readConversation resolves the account key, sends the raw account id and linearizes messages", async () => {
   const rawId = "raw-1";

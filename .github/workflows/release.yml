@@ -74,13 +74,20 @@ jobs:
         with:
           name: mac-artifacts
           path: release
-      - name: Verify tag matches package version
+      - name: Verify tag matches every published version reference
         run: |
           pkg_version=$(node -p "require('./package.json').version")
-          if [ "${GITHUB_REF_NAME}" != "v${pkg_version}" ]; then
-            echo "tag ${GITHUB_REF_NAME} does not match package version v${pkg_version}" >&2
-            exit 1
-          fi
+          desktop_version=$(node -p "require('./apps/desktop/package.json').version")
+          manifest_version=$(node -p "require('./packages/chatgpt-browser-bridge-extension/manifest.json').version")
+          expected="${GITHUB_REF_NAME#v}"
+          ok=1
+          for v in "$pkg_version" "$desktop_version" "$manifest_version"; do
+            if [ "$v" != "$expected" ]; then
+              echo "version mismatch: expected $expected but found $v" >&2
+              ok=0
+            fi
+          done
+          [ "$ok" = "1" ] || exit 1
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

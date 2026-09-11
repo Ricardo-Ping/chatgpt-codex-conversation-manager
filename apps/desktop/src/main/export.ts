@@ -43,8 +43,10 @@ export function safeFileName(title: string, id: string): string {
   return `${base || "未命名会话"}-${suffix || "export"}.md`;
 }
 
+// 仅接受 https 图片源：导出时会对这些 URL 发起下载，放宽到任意协议（file:/http: 等）
+// 会引入 SSRF/本地文件探测风险
 export function extractChatGptImageUrls(markdown: string): string[] {
-  return [...new Set([...markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)].map((m) => m[1] ?? ""))].filter(Boolean);
+  return [...new Set([...markdown.matchAll(/!\[[^\]]*\]\((https:\/\/[^)\s]+)\)/g)].map((m) => m[1] ?? ""))].filter(Boolean);
 }
 
 // 导出图片目录按会话隔离：复用安全文件名（已带 id 前缀防碰撞），空白折叠为 - 保证 markdown 链接可直接使用

@@ -1,10 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-const appLanguage = ipcRenderer.sendSync("app:language-sync");
-
 contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
   appVersion: () => ipcRenderer.invoke("app:version"),
-  appLanguage: appLanguage,
   setAppLanguage: (value) => ipcRenderer.invoke("language:set", value),
   openExternal: (url) => ipcRenderer.invoke("external:open", url),
   chatgpt: Object.freeze({

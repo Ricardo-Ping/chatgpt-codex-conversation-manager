@@ -1,6 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,7 +37,7 @@ let currentChatBatchId: string | null = null;
 let activeBatchCount = 0;
 initIpcWindow(() => mainWindow);
 initUpdater({ getMainWindow: () => mainWindow, getActiveBatchCount: () => activeBatchCount });
-initPreferences({ getMainWindow: () => mainWindow });
+initPreferences({ getMainWindow: () => mainWindow, reloadIndex: () => indexStore.load() });
 registerUpdateHandlers();
 registerPreferenceHandlers();
 
@@ -196,7 +197,7 @@ function threadPayload(payload: unknown, item: { id: string; title: string; prev
 }
 function threadLike(item: { id: string; title: string; preview: string; cwd: string | null }): { id: string; name: string | null; preview: string | null; cwd: string | null } { return { id: item.id, name: item.title || null, preview: item.preview || null, cwd: item.cwd }; }
 
-ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? M().codexConnectedLocal : M().codexConnectedBundled) : M().codexNotFound, command: codexCommand }; });
+ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? M().codexConnectedLocal : M().codexConnectedBundled) : M().codexNotFound, command: codexCommand, home: join(homedir(), ".codex") }; });
 ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const dialogOptions: Electron.OpenDialogOptions = { title: M().pickCodexExe, properties: ["openFile"] }; if (process.platform !== "darwin") dialogOptions.filters = [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }]; const result = await dialog.showOpenDialog(mainWindow, dialogOptions); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; codexScanFailedAt = 0; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
 ipcMain.handle("codex:list", async (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return codex.list({ cursor: typeof input.cursor === "string" ? input.cursor : null, limit: 100, archived: input.archived === true, searchTerm: typeof input.searchTerm === "string" ? input.searchTerm.slice(0, 200) : null, full: input.full === true }); });
 ipcMain.handle("codex:open", async (event, value) => {
@@ -299,7 +300,6 @@ ipcMain.handle("log:save", async (event) => {
   await saveLogsTo(result.filePath);
   return { saved: true, path: result.filePath };
 });
-ipcMain.on("app:language-sync", (event) => { event.returnValue = appLanguage(); });
 ipcMain.handle("language:get", (event) => { requireRenderer(event); return appLanguage(); });
 ipcMain.handle("language:set", async (event, value) => { requireRenderer(event); if (value !== "zh" && value !== "en") throw new Error("Invalid language"); setAppLanguage(value); await saveLanguagePreference(app.getPath("userData"), appLanguage()); refreshUpdateMessage(); return appLanguage(); });
 
