@@ -1,6 +1,6 @@
 {
   "name": "@conversation-manager/desktop",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "type": "module",
   "description": "Conversation management for ChatGPT and Codex",
@@ -80,7 +80,10 @@
           "popup.js"
         ]
       },
-      { "from": "build/icon.png", "to": "tray-icon.png" }
+      {
+        "from": "build/icon.png",
+        "to": "tray-icon.png"
+      }
     ],
     "win": {
       "target": [
