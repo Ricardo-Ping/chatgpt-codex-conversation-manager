@@ -59,7 +59,8 @@ export function bulkSelectableIds(records: ManagedConversation[]): string[] {
     .map((record) => record.id);
 }
 
-/** 按 id 去重并保留首次出现顺序；调用方如需按 updatedAt 排序请自行追加。 */
+/** 按 id 去重（Map 语义）：重复 id 保留最后出现的值，位置保持在首次出现处；
+ * 调用方如需按 updatedAt 排序请自行追加，本函数不做排序。 */
 export function dedupeById<T extends { id: string }>(items: T[]): T[] {
   return [...new Map(items.map((item) => [item.id, item])).values()];
 }

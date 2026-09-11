@@ -456,10 +456,43 @@ if (process.platform === "darwin") {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
-app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); if (process.platform === "darwin") { const bundle = macAppBundlePath(app.getPath("exe")); if (bundle) void cleanupMacInstallLeftovers(bundle); } const systemDefault: AppLanguage = app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "en"; setAppLanguage(await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh")); if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" }); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret"));
-bridge.onSecretChange(() => writeMcpEndpointFile());
-bridge.setLocalHandler(handleLocalCommand);
-indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown }; if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version); } catch {} try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } await applyStartupUpdatePreferences(); refreshUpdateMessage(); await createWindow(); createQuickWindow(); createTray(); if (!globalShortcut.register("Alt+Shift+Space", toggleQuickSearch)) logWarn("global shortcut Alt+Shift+Space registration failed"); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
+app.whenReady().then(async () => {
+  nativeTheme.themeSource = await loadThemePreference();
+  const userData = app.getPath("userData");
+  initLogger(userData);
+  if (process.platform === "darwin") {
+    const bundle = macAppBundlePath(app.getPath("exe"));
+    if (bundle) void cleanupMacInstallLeftovers(bundle);
+  }
+  const systemDefault: AppLanguage = app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "en";
+  setAppLanguage(await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh"));
+  if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" });
+  logInfo(M().appStart(app.getVersion(), String(app.isPackaged)));
+  try {
+    const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown };
+    if (typeof saved.command === "string" && saved.command.length <= 1_000) {
+      codexCommand = saved.command;
+      codex = new CodexAppServer(codexCommand);
+    }
+  } catch {}
+  bridge = new ChatGptBridgeServer(join(userData, "bridge-secret"));
+  bridge.onSecretChange(() => writeMcpEndpointFile());
+  bridge.setLocalHandler(handleLocalCommand);
+  indexStore = new ConversationIndexStore(join(userData, "conversation-index.json"));
+  await indexStore.load();
+  try {
+    const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown };
+    if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version);
+  } catch {}
+  try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); }
+  await applyStartupUpdatePreferences();
+  refreshUpdateMessage();
+  await createWindow();
+  createQuickWindow();
+  createTray();
+  if (!globalShortcut.register("Alt+Shift+Space", toggleQuickSearch)) logWarn("global shortcut Alt+Shift+Space registration failed");
+  scheduleAutomaticUpdates();
+}).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
 app.on("before-quit", () => { isQuitting = true; globalShortcut.unregisterAll(); });
 app.on("window-all-closed", () => { shutdownUpdaterTimers(); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });

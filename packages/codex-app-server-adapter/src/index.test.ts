@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { CodexAppServer } from "./index.js";
+import { CodexAppServer, threadFingerprint, type CodexThread } from "./index.js";
+
+const thread = (overrides: Partial<CodexThread> = {}): CodexThread => ({ id: "t", preview: "", name: null, createdAt: 0, updatedAt: 0, cwd: "", projectId: null, parentThreadId: null, status: { type: "unknown" }, ...overrides });
 
 function fakeProcess() {
   const child = new EventEmitter() as EventEmitter & {
@@ -49,5 +51,20 @@ describe("CodexAppServer", () => {
     await Promise.all([server.list(), server.list()]);
     expect(methods).toEqual(["initialize", "initialized", "thread/list", "thread/list"]);
     server.close();
+  });
+});
+
+describe("threadFingerprint", () => {
+  it("is order-independent and encodes id, updatedAt and status", () => {
+    const a = thread({ id: "t1", updatedAt: 5, status: { type: "active" } });
+    const b = thread({ id: "t2", updatedAt: 7 });
+    expect(threadFingerprint([a, b])).toBe(threadFingerprint([b, a]));
+    expect(threadFingerprint([a, b])).toBe("t1:5:active|t2:7:unknown");
+  });
+  it("changes whenever a task id, updatedAt or status changes", () => {
+    const base = thread({ id: "t1", updatedAt: 5, status: { type: "active" } });
+    expect(threadFingerprint([base])).not.toBe(threadFingerprint([{ ...base, updatedAt: 6 }]));
+    expect(threadFingerprint([base])).not.toBe(threadFingerprint([{ ...base, id: "t2" }]));
+    expect(threadFingerprint([base])).not.toBe(threadFingerprint([{ ...base, status: { type: "completed" } }]));
   });
 });

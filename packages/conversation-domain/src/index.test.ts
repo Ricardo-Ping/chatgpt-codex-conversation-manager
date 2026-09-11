@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bulkSelectableIds, cutoffFor, filterConversations, type ManagedConversation } from "./index.js";
+import { bulkSelectableIds, cutoffFor, dedupeById, filterConversations, isValidVersionFormat, type ManagedConversation } from "./index.js";
 
 const base: ManagedConversation = {
   source: "codex",
@@ -36,5 +36,37 @@ describe("conversation domain", () => {
       { ...base, id: "3", current: true },
       { ...base, id: "4", running: true }
     ])).toEqual(["1"]);
+  });
+});
+
+describe("dedupeById", () => {
+  it("keeps the last value for a duplicate id, at the position of its first occurrence", () => {
+    const result = dedupeById([
+      { id: "b", tag: "first-b" },
+      { id: "a", tag: "only-a" },
+      { id: "b", tag: "second-b" }
+    ] as Array<{ id: string; tag: string }>);
+    expect(result).toEqual([
+      { id: "b", tag: "second-b" },
+      { id: "a", tag: "only-a" }
+    ]);
+  });
+});
+
+describe("isValidVersionFormat", () => {
+  it("accepts loose dotted numeric versions", () => {
+    expect(isValidVersionFormat("0.7.1")).toBe(true);
+    expect(isValidVersionFormat("1")).toBe(true);
+    expect(isValidVersionFormat("1.2.3.4")).toBe(true);
+  });
+  it("rejects non-strings and non-numeric leading content", () => {
+    expect(isValidVersionFormat(7)).toBe(false);
+    expect(isValidVersionFormat("v1.2.3")).toBe(false);
+    expect(isValidVersionFormat("alpha")).toBe(false);
+    expect(isValidVersionFormat("")).toBe(false);
+  });
+  it("deliberately does not anchor the tail (legacy lenient behavior)", () => {
+    expect(isValidVersionFormat("1.2.3.4.5")).toBe(true);
+    expect(isValidVersionFormat("1abc")).toBe(true);
   });
 });
