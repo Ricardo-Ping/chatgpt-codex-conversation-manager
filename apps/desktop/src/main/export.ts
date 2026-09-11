@@ -23,6 +23,8 @@ const LABELS: Record<ExportLang, {
 
 function labels(lang: ExportLang) { return LABELS[lang] ?? LABELS.zh; }
 
+// 注意：与渲染端 conversation-viewer.tsx 的 roleLabel 语义不同——导出文档需要区分
+// "助手/Assistant"标签（按 lang 固定），而查看器把助手统一显示为来源平台名
 export function roleLabel(role: string, lang: ExportLang = "zh"): string {
   const l = labels(lang);
   if (role === "user" || role.includes("user")) return l.user;

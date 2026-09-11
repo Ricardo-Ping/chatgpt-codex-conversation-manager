@@ -1,29 +1,24 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { accessSync, constants as fsConstants } from "node:fs";
-import { mkdir, copyFile, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import electronUpdater from "electron-updater";
-import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode, type CachedConversation } from "@conversation-manager/chatgpt-bridge-server";
+import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from "@conversation-manager/chatgpt-bridge-server";
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
+import { isValidVersionFormat } from "@conversation-manager/conversation-domain";
 import { discoverCodexCommands } from "./codex-discovery.js";
-import { buildSessionsArchive, extractSessionsArchive } from "./codex-sessions-archive.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
-import { cleanupMacInstallLeftovers, downloadMacArchive, fetchMacRelease, macAppBundlePath, swapMacBundle, type MacUpdateCheck } from "./mac-updater.js";
-import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
+import { cleanupMacInstallLeftovers, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
-import { loadLanguagePreference, saveLanguagePreference, type AppLanguage } from "./language.js";
-import { MAIN_STRINGS } from "./strings.js";
+import { loadLanguagePreference, saveLanguagePreference, setAppLanguage, appLanguage, M, type AppLanguage } from "./language.js";
 import { applyImageRewrites, chatGptImageDir, chatgptTranscriptMarkdown, codexMessagesFromTurns, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, extractChatGptImageUrls, safeFileName } from "./export.js";
+import { initIpcWindow, requireRenderer, requireId, requireIds, requireAccount, requireState, validateConfirmation, rememberConfirmation, sanitizeAccounts, sanitizeProjects, sanitizeRecords } from "./ipc-sanitize.js";
+import { initUpdater, registerUpdateHandlers, applyStartupUpdatePreferences, scheduleAutomaticUpdates, refreshUpdateMessage, shutdownUpdaterTimers, RELEASE_URL } from "./updater.js";
+import { initPreferences, registerPreferenceHandlers, loadThemePreference } from "./preferences.js";
 
-const { autoUpdater } = electronUpdater;
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const RELEASE_URL = "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases";
 const CHATGPT_URL = "https://chatgpt.com/";
-const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const BRIDGE_TIMEOUT_LONG_MS = 300_000;
 const BRIDGE_TIMEOUT_PROJECTS_MS = 120_000;
 // 会话正文读取缓存：重复查看同一会话时秒开，编辑类操作不走此缓存
@@ -33,28 +28,17 @@ const READ_CACHE_MAX = 50;
 let codexCommand = "codex";
 let codex = new CodexAppServer(codexCommand);
 let codexConnection: Promise<boolean> | null = null;
+let codexScanFailedAt = 0;
 let mainWindow: BrowserWindow | null = null;
 let bridge: ChatGptBridgeServer;
 let indexStore: ConversationIndexStore;
-let autoUpdateEnabled = DEFAULT_AUTO_UPDATE;
-let updateStartupTimer: NodeJS.Timeout | null = null;
-let updateInterval: NodeJS.Timeout | null = null;
-let updateInstallTimer: NodeJS.Timeout | null = null;
-let macRelease: MacUpdateCheck | null = null;
-let macArchivePath: string | null = null;
 let currentChatBatchId: string | null = null;
 let activeBatchCount = 0;
-const confirmations = new Map<string, { source: "chatgpt" | "codex"; ids: string[]; fingerprint?: string; expiresAt: number }>();
-const canAutoInstallUpdate = supportsAutomaticInstallation(app.isPackaged, process.platform, process.env.PORTABLE_EXECUTABLE_FILE);
-let LANG: AppLanguage = "zh";
-const M = () => MAIN_STRINGS[LANG];
-let updateState = { phase: app.isPackaged ? "idle" : "unsupported", currentVersion: app.getVersion(), version: null as string | null, percent: null as number | null, message: M().idle, autoUpdate: true, canAutoInstall: canAutoInstallUpdate };
-
-function requireRenderer(event: IpcMainInvokeEvent): void { if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Untrusted IPC sender"); }
-function requireId(value: unknown): string { if (typeof value !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(value)) throw new Error("Invalid conversation ID"); return value; }
-function requireAccount(value: unknown): string { if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new Error("Invalid account key"); return value; }
-function requireIds(value: unknown): string[] { if (!Array.isArray(value) || value.length < 1 || value.length > 500) throw new Error("Invalid selection"); return [...new Set(value.map(requireId))].sort(); }
-function requireState(value: unknown): CachedConversation["state"] { if (value !== "active" && value !== "archived" && value !== "scheduled") throw new Error("Invalid state"); return value; }
+initIpcWindow(() => mainWindow);
+initUpdater({ getMainWindow: () => mainWindow, getActiveBatchCount: () => activeBatchCount });
+initPreferences({ getMainWindow: () => mainWindow });
+registerUpdateHandlers();
+registerPreferenceHandlers();
 
 let logUnsubscribe: (() => void) | null = null;
 async function createWindow(): Promise<void> {
@@ -62,101 +46,34 @@ async function createWindow(): Promise<void> {
   // 界面内点击的网页链接一律交给系统浏览器，防止应用窗口被导航走
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith("http")) void shell.openExternal(url).catch(() => {}); return { action: "deny" }; });
   mainWindow.webContents.on("will-navigate", (event, url) => { event.preventDefault(); if (url.startsWith("http")) void shell.openExternal(url).catch(() => {}); });
-  await mainWindow.loadFile(join(__dirname, "..", "renderer", "index.html"), { query: { lang: LANG } }); mainWindow.on("closed", () => { mainWindow = null; });
+  await mainWindow.loadFile(join(__dirname, "..", "renderer", "index.html"), { query: { lang: appLanguage() } }); mainWindow.on("closed", () => { mainWindow = null; });
   if (logUnsubscribe) logUnsubscribe();
   logUnsubscribe = onLogLine((line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("log:appended", line); });
 }
 
-function publishUpdateState(patch: Partial<typeof updateState>): void { updateState = { ...updateState, ...patch }; mainWindow?.webContents.send("update:state", updateState); }
-async function loadUpdatePreference(): Promise<boolean> { for (const file of [join(app.getPath("userData"), "update-preferences.json"), join(app.getPath("appData"), "CGN Desktop", "update-preferences.json")]) { try { return parseAutoUpdatePreference((JSON.parse(await readFile(file, "utf8")) as { autoUpdate?: unknown }).autoUpdate); } catch {} } return DEFAULT_AUTO_UPDATE; }
-async function saveUpdatePreference(value: boolean): Promise<void> { await mkdir(app.getPath("userData"), { recursive: true }); await writeFile(join(app.getPath("userData"), "update-preferences.json"), `${JSON.stringify({ autoUpdate: value }, null, 2)}\n`, "utf8"); }
+// 候选命令全量扫描失败后的冷却期：期间不再重复扫描（每次扫描都会逐个启动进程探测），
+// 但现有命令的快速重连不受影响；手动选择命令会重置冷却
+const CODEX_SCAN_COOLDOWN_MS = 30_000;
 async function connectCodex(): Promise<boolean> {
   if (codexConnection) return codexConnection;
   codexConnection = (async () => {
     try { await codex.start(); return true; } catch {}
+    if (Date.now() - codexScanFailedAt < CODEX_SCAN_COOLDOWN_MS) return false;
     for (const command of await discoverCodexCommands()) {
       if (command === codexCommand) continue;
       const candidate = new CodexAppServer(command);
       try {
         await candidate.start(); codex.close(); codex = candidate; codexCommand = command;
         await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8");
+        codexScanFailedAt = 0;
         return true;
       } catch { candidate.close(); }
     }
+    codexScanFailedAt = Date.now();
     return false;
   })();
   try { return await codexConnection; } finally { codexConnection = null; }
 }
-async function checkForUpdates(): Promise<void> { if (!app.isPackaged || ["checking", "downloading"].includes(updateState.phase)) return; if (process.platform === "darwin") return void checkMacRelease(); publishUpdateState({ phase: "checking", percent: null, message: M().checking }); try { await autoUpdater.checkForUpdates(); } catch { publishUpdateState({ phase: "error", message: M().updateError }); } }
-function macAppBundle(): string | null { const bundle = macAppBundlePath(app.getPath("exe")); if (!bundle) return null; try { accessSync(dirname(bundle), fsConstants.W_OK); accessSync(bundle, fsConstants.W_OK); return bundle; } catch { return null; } }
-async function checkMacRelease(): Promise<void> {
-  publishUpdateState({ phase: "checking", percent: null, message: M().checking });
-  try {
-    const release = await fetchMacRelease(app.getVersion());
-    if (!release) { macRelease = null; publishUpdateState({ phase: "not-available", version: null, percent: null, message: M().upToDate }); return; }
-    macRelease = release;
-    publishUpdateState({ phase: "available", version: release.version, percent: null, message: M().macUpdateAvailable(release.version) });
-    if (autoUpdateEnabled) void downloadMacRelease();
-  } catch { publishUpdateState({ phase: "error", message: M().updateError }); }
-}
-async function downloadMacRelease(): Promise<void> {
-  if (process.platform !== "darwin" || !app.isPackaged) throw new Error(M().updateNotReady);
-  if (updateState.phase === "downloading") return;
-  if (!macRelease) { await checkMacRelease(); if (!macRelease) throw new Error(M().updateNotReady); }
-  const bundle = macAppBundle();
-  if (!bundle) { publishUpdateState({ phase: "error", message: M().macInstallNoPermission }); return; }
-  publishUpdateState({ phase: "downloading", percent: 0, message: M().downloadProgress(0) });
-  try {
-    const archiveDir = join(app.getPath("userData"), "mac-updates");
-    await rm(archiveDir, { recursive: true, force: true });
-    const archivePath = await downloadMacArchive(macRelease, archiveDir, (percent) => publishUpdateState({ phase: "downloading", percent, message: M().downloadProgress(percent) }));
-    macArchivePath = archivePath;
-    publishUpdateState({ phase: "downloaded", version: macRelease.version, percent: 100, message: autoUpdateEnabled ? M().downloadedAuto(macRelease.version) : M().downloadedManual(macRelease.version) });
-    if (autoUpdateEnabled) scheduleMacInstall();
-  } catch { publishUpdateState({ phase: "error", message: M().updateError }); }
-}
-function scheduleMacInstall(): void {
-  if (updateInstallTimer) return;
-  updateInstallTimer = setTimeout(() => {
-    updateInstallTimer = null;
-    if (updateState.phase === "downloaded" && macArchivePath && activeBatchCount === 0) startMacInstall();
-    else if (updateState.phase === "downloaded" && autoUpdateEnabled) { publishUpdateState({ message: M().downloadedWaitBatch }); scheduleMacInstall(); }
-  }, 5_000);
-  updateInstallTimer.unref();
-}
-function startMacInstall(): void {
-  if (process.platform !== "darwin" || !macArchivePath || updateState.phase !== "downloaded") throw new Error(M().updateNotReady);
-  const bundle = macAppBundle();
-  if (!bundle) { publishUpdateState({ phase: "error", message: M().macInstallNoPermission }); return; }
-  void swapMacBundle(macArchivePath, bundle).then(() => { app.relaunch(); app.quit(); }).catch(() => publishUpdateState({ phase: "error", message: M().updateError }));
-}
-function scheduleAutomaticUpdates(): void { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); updateStartupTimer = null; updateInterval = null; if (!app.isPackaged || !autoUpdateEnabled) return; updateStartupTimer = setTimeout(() => void checkForUpdates(), 10_000); updateInterval = setInterval(() => void checkForUpdates(), UPDATE_CHECK_INTERVAL_MS); updateStartupTimer.unref(); updateInterval.unref(); }
-function scheduleUpdateInstall(): void {
-  if (updateInstallTimer) return;
-  updateInstallTimer = setTimeout(() => {
-    updateInstallTimer = null;
-    if (isUpdateInstallSafe(updateState.phase, activeBatchCount)) autoUpdater.quitAndInstall(true, true);
-    else if (updateState.phase === "downloaded" && autoUpdateEnabled) { publishUpdateState({ message: M().downloadedWaitBatch }); scheduleUpdateInstall(); }
-  }, 5_000);
-  updateInstallTimer.unref();
-}
-function configureUpdater(): void {
-  autoUpdater.allowPrerelease = app.getVersion().includes("-"); autoUpdater.autoDownload = canAutoInstallUpdate; autoUpdater.autoInstallOnAppQuit = canAutoInstallUpdate; autoUpdater.logger = null;
-  autoUpdater.on("checking-for-update", () => publishUpdateState({ phase: "checking", percent: null, message: M().checking }));
-  autoUpdater.on("update-available", (info) => publishUpdateState({ phase: "available", version: info.version, message: canAutoInstallUpdate ? M().downloadingUpdate(info.version) : M().downloadedManual(info.version) }));
-  autoUpdater.on("update-not-available", (info) => publishUpdateState({ phase: "not-available", version: info.version, percent: null, message: M().upToDate }));
-  autoUpdater.on("download-progress", (progress) => publishUpdateState({ phase: "downloading", percent: Math.round(progress.percent), message: M().downloadProgress(Math.round(progress.percent)) }));
-  autoUpdater.on("update-downloaded", (info) => {
-    if (canAutoInstallUpdate && autoUpdateEnabled) {
-      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: M().downloadedAuto(info.version) });
-      scheduleUpdateInstall();
-    } else {
-      publishUpdateState({ phase: "downloaded", version: info.version, percent: 100, message: M().downloadedManual(info.version) });
-    }
-  });
-  autoUpdater.on("error", (error) => { logWarn(`updater error: ${error?.message ?? error}`); publishUpdateState({ phase: "error", message: M().updateError }); });
-}
-
 ipcMain.handle("app:version", (event) => { requireRenderer(event); return app.getVersion(); });
 ipcMain.handle("external:open", async (event, value) => { requireRenderer(event); if (value !== CHATGPT_URL && value !== RELEASE_URL && value !== "https://developers.openai.com/codex/app-server") throw new Error("URL not allowed"); await shell.openExternal(value); });
 ipcMain.handle("chatgpt:state", (event) => { requireRenderer(event); return bridge.state(); });
@@ -191,7 +108,6 @@ ipcMain.handle("chatgpt:batch", async (event, value) => {
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
-ipcMain.handle("dialog:pick-directory", async (event, value) => { requireRenderer(event); if (!mainWindow) throw new Error(M().windowUnavailable); const input = value && typeof value === "object" ? value as { defaultPath?: unknown } : {}; const defaultPath = typeof input.defaultPath === "string" && input.defaultPath ? input.defaultPath : undefined; const result = await dialog.showOpenDialog(mainWindow, { title: M().pickSaveDir, defaultPath, properties: ["openDirectory", "createDirectory"] }); return { directory: result.canceled || !result.filePaths[0] ? null : result.filePaths[0] }; });
 ipcMain.handle("chatgpt:export", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const accountKey = requireAccount(input.accountKey);
@@ -214,7 +130,7 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
         const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
         const messages = rawMessages.map((message) => { const row = message && typeof message === "object" ? message as Record<string, unknown> : {}; return { role: typeof row.role === "string" ? row.role : "other", at: typeof row.at === "number" ? row.at : null, text: typeof row.text === "string" ? row.text : "" }; });
         const transcript = { id: item.id, title: typeof payload.title === "string" ? payload.title.slice(0, 200) : item.title, messages };
-        const markdown = chatgptTranscriptMarkdown(transcript, Date.now(), "ChatGPT", LANG);
+        const markdown = chatgptTranscriptMarkdown(transcript, Date.now(), "ChatGPT", appLanguage());
         // 图片按会话存放在独立子目录，避免批量导出时同名互相覆盖
         const imageDirName = chatGptImageDir(transcript.title || item.title, item.id);
         let rewritten = markdown;
@@ -261,9 +177,9 @@ ipcMain.handle("codex:export", async (event, value) => {
         const payload = await codex.readThread(item.id);
         const turns = codexTurnsFromPayload(payload);
         const thread = threadPayload(payload, item);
-        markdown = codexTranscriptMarkdown(thread, turns, Date.now(), LANG);
+        markdown = codexTranscriptMarkdown(thread, turns, Date.now(), appLanguage());
       } catch (readError) {
-        markdown = codexMetadataMarkdown(threadMeta, readError instanceof Error ? readError.message : String(readError), Date.now(), LANG);
+        markdown = codexMetadataMarkdown(threadMeta, readError instanceof Error ? readError.message : String(readError), Date.now(), appLanguage());
       }
       await writeFile(join(directory, safeFileName(threadMeta.name?.trim() || item.title, item.id)), markdown, "utf8");
       saved += 1;
@@ -281,7 +197,7 @@ function threadPayload(payload: unknown, item: { id: string; title: string; prev
 function threadLike(item: { id: string; title: string; preview: string; cwd: string | null }): { id: string; name: string | null; preview: string | null; cwd: string | null } { return { id: item.id, name: item.title || null, preview: item.preview || null, cwd: item.cwd }; }
 
 ipcMain.handle("codex:status", async (event) => { requireRenderer(event); const available = await connectCodex(); return { available, message: available ? (codexCommand === "codex" ? M().codexConnectedLocal : M().codexConnectedBundled) : M().codexNotFound, command: codexCommand }; });
-ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const dialogOptions: Electron.OpenDialogOptions = { title: M().pickCodexExe, properties: ["openFile"] }; if (process.platform !== "darwin") dialogOptions.filters = [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }]; const result = await dialog.showOpenDialog(mainWindow, dialogOptions); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
+ipcMain.handle("codex:select-command", async (event) => { requireRenderer(event); if (!mainWindow) throw new Error("Window unavailable"); const dialogOptions: Electron.OpenDialogOptions = { title: M().pickCodexExe, properties: ["openFile"] }; if (process.platform !== "darwin") dialogOptions.filters = [{ name: "Codex", extensions: ["exe", "cmd", "bat"] }]; const result = await dialog.showOpenDialog(mainWindow, dialogOptions); if (result.canceled || !result.filePaths[0]) return { selected: false, command: codexCommand }; const command = result.filePaths[0]; const candidate = new CodexAppServer(command); await candidate.start(); codex.close(); codex = candidate; codexCommand = command; codexScanFailedAt = 0; await writeFile(join(app.getPath("userData"), "codex-command.json"), `${JSON.stringify({ command }, null, 2)}\n`, "utf8"); return { selected: true, command }; });
 ipcMain.handle("codex:list", async (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return codex.list({ cursor: typeof input.cursor === "string" ? input.cursor : null, limit: 100, archived: input.archived === true, searchTerm: typeof input.searchTerm === "string" ? input.searchTerm.slice(0, 200) : null, full: input.full === true }); });
 ipcMain.handle("codex:open", async (event, value) => {
   requireRenderer(event);
@@ -373,71 +289,6 @@ ipcMain.handle("codex:batch", async (event, value) => {
   } finally { activeBatchCount -= 1; }
 });
 
-ipcMain.handle("update:get-state", (event) => { requireRenderer(event); return updateState; });
-ipcMain.handle("update:set-auto", async (event, value) => { requireRenderer(event); if (typeof value !== "boolean") throw new Error("Invalid update preference"); await saveUpdatePreference(value); autoUpdateEnabled = value; if (updateInstallTimer) { clearTimeout(updateInstallTimer); updateInstallTimer = null; } publishUpdateState({ autoUpdate: value, ...(value && updateState.phase === "downloaded" && canAutoInstallUpdate ? { message: M().downloadedAuto(updateState.version ?? "") } : {}) }); scheduleAutomaticUpdates(); if (value && updateState.phase === "downloaded" && canAutoInstallUpdate) scheduleUpdateInstall(); else if (value) void checkForUpdates(); return updateState; });
-ipcMain.handle("update:check", async (event) => { requireRenderer(event); await checkForUpdates(); return updateState; });
-ipcMain.handle("update:download", async (event) => { requireRenderer(event); await downloadMacRelease(); return updateState; });
-ipcMain.handle("update:install", (event) => {
-  requireRenderer(event);
-  if (process.platform === "darwin") { if (!macArchivePath || updateState.phase !== "downloaded") throw new Error(M().updateNotReady); if (activeBatchCount > 0) throw new Error(M().installWaitBatch); startMacInstall(); return updateState; }
-  if (!canAutoInstallUpdate || !isUpdateInstallSafe(updateState.phase, activeBatchCount)) throw new Error(activeBatchCount ? M().installWaitBatch : M().updateNotReady);
-  autoUpdater.quitAndInstall(true, true);
-});
-ipcMain.handle("update:open-release", async (event) => { requireRenderer(event); await shell.openExternal(RELEASE_URL); });
-ipcMain.handle("startup:get", (event) => { requireRenderer(event); return app.getLoginItemSettings().openAtLogin; });
-ipcMain.handle("startup:set", (event, value) => {
-  requireRenderer(event);
-  if (typeof value !== "boolean") throw new Error("Invalid startup preference");
-  try { app.setLoginItemSettings({ openAtLogin: value }); } catch {}
-  return app.getLoginItemSettings().openAtLogin;
-});
-ipcMain.handle("data:export", async (event, value) => {
-  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const directory = typeof input.directory === "string" && input.directory.trim() ? input.directory.trim() : null;
-  if (!directory) throw new Error(M().noDirectory);
-  await mkdir(directory, { recursive: true });
-  const userData = app.getPath("userData");
-  const files = ["conversation-index.json", "update-preferences.json", "theme-preferences.json", "language-preferences.json", "codex-command.json"];
-  let copied = 0;
-  for (const file of files) { try { await copyFile(join(userData, file), join(directory, file)); copied += 1; } catch {} }
-  return { copied, directory };
-});
-ipcMain.handle("data:import", async (event, value) => {
-  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const directory = typeof input.directory === "string" && input.directory.trim() ? input.directory.trim() : null;
-  if (!directory) throw new Error(M().noDirectory);
-  const userData = app.getPath("userData");
-  const files = ["conversation-index.json", "update-preferences.json", "theme-preferences.json", "language-preferences.json", "codex-command.json"];
-  let restored = 0;
-  for (const file of files) { try { await copyFile(join(directory, file), join(userData, file)); restored += 1; } catch {} }
-  return { restored };
-});
-ipcMain.handle("codex:export-sessions-archive", async (event) => {
-  requireRenderer(event);
-  if (!mainWindow) throw new Error(M().windowUnavailable);
-  const result = await dialog.showSaveDialog(mainWindow, { title: M().saveSessionsZip, defaultPath: `codex-sessions-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{ name: "Zip", extensions: ["zip"] }] });
-  if (result.canceled || !result.filePath) return { cancelled: true };
-  const { zip, count } = await buildSessionsArchive(join(homedir(), ".codex"));
-  if (!count) return { cancelled: false, count: 0 };
-  await writeFile(result.filePath, zip);
-  logInfo(`codex sessions archive: exported ${count} sessions -> ${result.filePath}`);
-  return { cancelled: false, count, file: result.filePath };
-});
-ipcMain.handle("codex:import-sessions-archive", async (event) => {
-  requireRenderer(event);
-  if (!mainWindow) throw new Error(M().windowUnavailable);
-  const result = await dialog.showOpenDialog(mainWindow, { title: M().pickSessionsZip, properties: ["openFile"], filters: [{ name: "Zip", extensions: ["zip"] }] });
-  if (result.canceled || !result.filePaths[0]) return { cancelled: true };
-  const zip = new Uint8Array(await readFile(result.filePaths[0]));
-  const { imported, skipped } = await extractSessionsArchive(zip, join(homedir(), ".codex"));
-  logInfo(`codex sessions archive: imported ${imported}, skipped ${skipped}`);
-  return { cancelled: false, imported, skipped };
-});
-
-type ThemePreference = "system" | "light" | "dark";
-async function loadThemePreference(): Promise<ThemePreference> { try { const raw = JSON.parse(await readFile(join(app.getPath("userData"), "theme-preferences.json"), "utf8")) as { theme?: unknown }; return raw.theme === "light" || raw.theme === "dark" || raw.theme === "system" ? raw.theme : "system"; } catch { return "system"; } }
-ipcMain.handle("theme:get", (event) => { requireRenderer(event); return nativeTheme.themeSource; });
-ipcMain.handle("theme:set", async (event, value) => { requireRenderer(event); if (value !== "system" && value !== "light" && value !== "dark") throw new Error("Invalid theme preference"); nativeTheme.themeSource = value; await mkdir(app.getPath("userData"), { recursive: true }); await writeFile(join(app.getPath("userData"), "theme-preferences.json"), `${JSON.stringify({ theme: value }, null, 2)}\n`, "utf8"); return nativeTheme.themeSource; });
 ipcMain.handle("log:read", async (event) => { requireRenderer(event); return readLogs(); });
 ipcMain.handle("log:info", (event, message) => { requireRenderer(event); logInfo(typeof message === "string" ? message.slice(0, 300) : "invalid log message"); return true; });
 ipcMain.handle("log:clear", async (event) => { requireRenderer(event); await clearLogs(); return true; });
@@ -448,50 +299,12 @@ ipcMain.handle("log:save", async (event) => {
   await saveLogsTo(result.filePath);
   return { saved: true, path: result.filePath };
 });
-ipcMain.on("app:language-sync", (event) => { event.returnValue = LANG; });
-ipcMain.handle("language:get", (event) => { requireRenderer(event); return LANG; });
-ipcMain.handle("language:set", async (event, value) => { requireRenderer(event); if (value !== "zh" && value !== "en") throw new Error("Invalid language"); LANG = value; await saveLanguagePreference(app.getPath("userData"), LANG); refreshUpdateMessage(); return LANG; });
+ipcMain.on("app:language-sync", (event) => { event.returnValue = appLanguage(); });
+ipcMain.handle("language:get", (event) => { requireRenderer(event); return appLanguage(); });
+ipcMain.handle("language:set", async (event, value) => { requireRenderer(event); if (value !== "zh" && value !== "en") throw new Error("Invalid language"); setAppLanguage(value); await saveLanguagePreference(app.getPath("userData"), appLanguage()); refreshUpdateMessage(); return appLanguage(); });
 
 function extensionDirectory(): string { return app.isPackaged ? join(process.resourcesPath, "chatgpt-browser-bridge-extension") : join(app.getAppPath(), "..", "..", "packages", "chatgpt-browser-bridge-extension"); }
-function refreshUpdateMessage(): void {
-  if (updateState.phase === "checking") publishUpdateState({ message: M().checking });
-  else if (updateState.phase === "downloading") publishUpdateState({ message: M().downloadProgress(updateState.percent ?? 0) });
-  else if (updateState.phase === "downloaded") publishUpdateState({ message: autoUpdateEnabled && canAutoInstallUpdate ? M().downloadedAuto(updateState.version ?? "") : M().downloadedManual(updateState.version ?? "") });
-  else if (updateState.phase === "available") publishUpdateState({ message: canAutoInstallUpdate ? M().downloadingUpdate(updateState.version ?? "") : M().downloadedManual(updateState.version ?? "") });
-  else if (updateState.phase === "not-available") publishUpdateState({ message: M().upToDate });
-  else if (updateState.phase === "error") publishUpdateState({ message: M().updateError });
-  else if (updateState.phase === "idle") publishUpdateState({ message: M().idle });
-}
-function validateConfirmation(source: "chatgpt" | "codex", ids: string[], value: unknown) { const token = typeof value === "string" ? value : ""; const confirmation = confirmations.get(token); confirmations.delete(token); if (!confirmation || confirmation.source !== source || confirmation.expiresAt < Date.now() || JSON.stringify(confirmation.ids) !== JSON.stringify(ids)) throw new Error(M().deleteConfirmationExpired); return confirmation; }
-function rememberConfirmation(source: "chatgpt" | "codex", ids: string[], fingerprint?: string): string { const now = Date.now(); for (const [token, entry] of confirmations) if (entry.expiresAt < now) confirmations.delete(token); const token = randomUUID(); confirmations.set(token, { source, ids, ...(fingerprint ? { fingerprint } : {}), expiresAt: now + 120_000 }); return token; }
-function sanitizeAccounts(value: unknown) { const input = value && typeof value === "object" ? value as { accounts?: unknown } : {}; if (!Array.isArray(input.accounts) || input.accounts.length > 100) throw new Error(M().invalidAccountList); const out: Array<{ key: string; label: string; isDefault: boolean }> = []; for (const item of input.accounts) { const row = item && typeof item === "object" ? item as Record<string, unknown> : {}; try { out.push({ key: requireAccount(row.key), label: typeof row.label === "string" ? row.label.slice(0, 100) : "ChatGPT", isDefault: row.isDefault === true }); } catch {} } if (!out.length && input.accounts.length) throw new Error(M().unrecognizedAccountList); return { accounts: out }; }
-function sanitizeProjects(value: unknown): Record<string, string> {
-  const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const out: Record<string, string> = {};
-  for (const [id, name] of Object.entries(input).slice(0, 300)) {
-    if (!id.startsWith("g-p-") || id.length > 128) continue;
-    if (typeof name === "string" && name.trim()) out[id] = name.trim().slice(0, 100);
-  }
-  return out;
-}
-const warnedMalformedIds = new Set<string>();
-function sanitizeRecords(value: unknown, state: CachedConversation["state"]): CachedConversation[] {
-  if (!Array.isArray(value) || value.length > 100_000) throw new Error(M().invalidConversationList);
-  const out: CachedConversation[] = []; let skipped = 0; let sample = "";
-  for (const item of value) {
-    const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
-    const number = (input: unknown) => typeof input === "number" && Number.isFinite(input) && input >= 0 ? input : null;
-    try {
-      out.push({ id: requireId(row.id), title: typeof row.title === "string" ? row.title.slice(0, 500) : M().unnamedConversation, createdAt: number(row.createdAt), updatedAt: number(row.updatedAt), state, ...(typeof row.projectId === "string" && row.projectId.length <= 128 ? { projectId: row.projectId } : {}), pinned: row.pinned === true, current: row.current === true, automation: state === "scheduled" });
-    } catch {
-      skipped += 1;
-      if (!sample && typeof row.id === "string") sample = `${row.id.slice(0, 12)}…(len ${row.id.length})`;
-    }
-  }
-  if (!out.length && value.length) throw new Error(M().unrecognizedConversations(value.length));
-  if (skipped && !warnedMalformedIds.has(sample)) { warnedMalformedIds.add(sample); logWarn(`[chatgpt-bridge] skipped ${skipped} malformed conversation rows, sample id: ${sample || "unknown"}`); }
-  return out;
-}
+
 // 开发/测试时可用 CM_USER_DATA_DIR 指向独立目录，避免与已安装实例共享单实例锁和缓存（必须在锁之前设置）
 if (!app.isPackaged && process.env.CM_USER_DATA_DIR) app.setPath("userData", process.env.CM_USER_DATA_DIR);
 const singleInstance = app.requestSingleInstanceLock();
@@ -510,8 +323,6 @@ if (process.platform === "darwin") {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
-// 开发/测试时可用 CM_USER_DATA_DIR 指向独立目录，避免与已安装实例共享单实例锁和缓存
-if (!app.isPackaged && process.env.CM_USER_DATA_DIR) app.setPath("userData", process.env.CM_USER_DATA_DIR);
-app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); if (process.platform === "darwin") { const bundle = macAppBundlePath(app.getPath("exe")); if (bundle) void cleanupMacInstallLeftovers(bundle); } const systemDefault: AppLanguage = app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "en"; LANG = await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh"); if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" }); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret")); indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown }; if (typeof bundled.version === "string" && /^\d+(\.\d+){0,3}/.test(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version); } catch {} try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } autoUpdateEnabled = await loadUpdatePreference(); updateState = { ...updateState, currentVersion: app.getVersion(), autoUpdate: autoUpdateEnabled }; configureUpdater(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
-app.on("window-all-closed", () => { if (updateStartupTimer) clearTimeout(updateStartupTimer); if (updateInterval) clearInterval(updateInterval); if (updateInstallTimer) clearTimeout(updateInstallTimer); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
+app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); if (process.platform === "darwin") { const bundle = macAppBundlePath(app.getPath("exe")); if (bundle) void cleanupMacInstallLeftovers(bundle); } const systemDefault: AppLanguage = app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "en"; setAppLanguage(await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh")); if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" }); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret")); indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown }; if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version); } catch {} try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } await applyStartupUpdatePreferences(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
+app.on("window-all-closed", () => { shutdownUpdaterTimers(); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });

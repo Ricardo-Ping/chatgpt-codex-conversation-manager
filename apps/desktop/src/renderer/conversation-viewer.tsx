@@ -66,6 +66,8 @@ export function renderMarkdown(text: string): string {
   return container.innerHTML;
 }
 
+// 注意：与 main/export.ts 的 roleLabel 语义不同——此处助手消息统一显示为来源平台名
+// （ChatGPT / Codex），且走渲染端 t() 实时语言；导出端则区分"助手/Assistant"标签
 function roleLabel(role: string, sourceName: string): string {
   if (/user/i.test(role)) return t("用户");
   if (/agent|assistant/i.test(role)) return sourceName;

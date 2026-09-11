@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@conversation-manager/codex-app-server-adapter": "workspace:*",
+    "@conversation-manager/conversation-domain": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^4.5.4"
   },

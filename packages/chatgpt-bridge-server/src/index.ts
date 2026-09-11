@@ -189,5 +189,7 @@ export class ConversationIndexStore {
   async clear(): Promise<void> { this.#data = { schemaVersion: 1, accounts: {} }; await this.#save(); }
   async #save(): Promise<void> { await mkdir(dirname(this.#file), { recursive: true }); const temp = `${this.#file}.tmp`; await writeFile(temp, `${JSON.stringify(this.#data)}\n`, "utf8"); await rename(temp, this.#file); }
 }
+// Map 按 id 去重与 conversation-domain#dedupeById 同源；此处附带按 updatedAt 倒序的存储不变量，
+// 且本包刻意保持零运行时依赖，故未直接引用共享实现。
 function dedupe(records: CachedConversation[]): CachedConversation[] { return [...new Map(records.map((item) => [item.id, item])).values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)); }
 export function accountKey(rawId: string): string { return createHash("sha256").update(rawId).digest("hex"); }

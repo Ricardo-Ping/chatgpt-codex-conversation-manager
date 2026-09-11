@@ -1,12 +1,14 @@
-import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { bulkSelectableIds, filterConversations, type AgeFilter, type ConversationState, type ManagedConversation } from "@conversation-manager/conversation-domain";
+import { bulkSelectableIds, dedupeById, filterConversations, type AgeFilter, type ConversationState, type ManagedConversation } from "@conversation-manager/conversation-domain";
 import type { CachedConversation, PairingState } from "@conversation-manager/chatgpt-bridge-server";
 import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
-import type { ThemePreference, UpdateState } from "./global.js";
 import { groupChatGptConversations, groupCodexConversations, isFolderGrouped, isProjectTask } from "./codex-groups.js";
 import { ConversationViewerPanel, relativeTime } from "./conversation-viewer.js";
 import { initialLanguage, setLanguage, t, type Lang } from "./strings.js";
+import { Segmented } from "./segmented.js";
+import { friendlyError, message } from "./ui-format.js";
+import { Settings, useExtensionDirectory, ExtensionPath } from "./settings.js";
 import iconUrl from "./icon.png";
 import "./styles.css";
 import "./project-groups.css";
@@ -18,17 +20,6 @@ const ageOptions: Array<[AgeFilter, string]> = [["all", "全部"], ["day", "1 �
 const stateLabels: Record<ConversationState, string> = { active: "未归档", archived: "已归档", scheduled: "已安排" };
 const BACKGROUND_SYNC_INTERVAL_MS = 10 * 60 * 1000;
 const BACKGROUND_ROTATE_INTERVAL_MS = 30 * 60 * 1000;
-
-function Segmented<T extends string>(props: { value: T; options: Array<[T, React.ReactNode]>; onChange(value: T): void; vertical?: boolean; className?: string; "aria-label"?: string }) {
-  const nodes = useRef(new Map<T, HTMLButtonElement>());
-  const [pill, setPill] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const measure = useCallback(() => { const node = nodes.current.get(props.value); if (!node) return; const next = { x: node.offsetLeft, y: node.offsetTop, width: node.offsetWidth, height: node.offsetHeight }; setPill((old) => old && old.x === next.x && old.y === next.y && old.width === next.width && old.height === next.height ? old : next); }, [props.value]);
-  useLayoutEffect(() => { measure(); });
-  return <div className={`segments${props.vertical ? " vertical" : ""}${props.className ? ` ${props.className}` : ""}`} role="tablist" aria-label={props["aria-label"]}>
-    {pill && <span className="segment-pill" style={{ transform: `translate(${pill.x}px, ${pill.y}px)`, width: pill.width, height: pill.height }} aria-hidden="true" />}
-    {props.options.map(([value, label]) => <button type="button" key={value} role="tab" aria-selected={props.value === value} ref={(node) => { if (node) nodes.current.set(value, node); else nodes.current.delete(value); }} className={props.value === value ? "active" : ""} onClick={() => props.onChange(value)}>{label}</button>)}
-  </div>;
-}
 
 function App() {
   const [page, setPage] = useState<Page>("chatgpt");
@@ -102,7 +93,9 @@ function ChatGptWorkspace({ bridge, state, onState, kind, onKind, onCounts }: { 
   const [accounts, setAccounts] = useState<Account[]>([]); const [accountKey, setAccountKey] = useState("");
   const [records, setRecords] = useState<ManagedConversation[]>([]); const [syncedAt, setSyncedAt] = useState<number | null>(null); const [compatible, setCompatible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const [projectNames, setProjectNames] = useState<Record<string, string>>({}); const [chatProjects, setChatProjects] = useState<Array<{ id: string; name: string }>>([]); const [projectsLoading, setProjectsLoading] = useState(false);
-  const syncingViewsRef = useRef(new Set<string>()); const currentViewRef = useRef(""); currentViewRef.current = `${accountKey}:${state}`;
+  const syncingViewsRef = useRef(new Set<string>()); const currentViewRef = useRef("");
+  // 渲染期间写 ref 是 React 反模式；此 ref 仅被异步回调用作过期守卫，随提交后同步即可
+  useEffect(() => { currentViewRef.current = `${accountKey}:${state}`; }, [accountKey, state]);
   const { confirm, dialog } = useConfirm();
   useEffect(() => { void window.conversationManager.chatgpt.cachedAccounts().then((value) => { setAccounts(value.accounts); setAccountKey(value.accounts[0]?.key || ""); }); }, []);
   useEffect(() => { if (!bridge.connected) return; void window.conversationManager.chatgpt.accounts().then((value) => { setAccounts(value.accounts); setAccountKey((old) => old || value.accounts.find((item) => item.isDefault)?.key || value.accounts[0]?.key || ""); }).catch((cause) => setError(friendlyError(cause))); }, [bridge.connected]);
@@ -137,27 +130,14 @@ function ConnectionCard() {
   </section>;
 }
 
-function useExtensionDirectory(): string {
-  const [directory, setDirectory] = useState("");
-  useEffect(() => { void window.conversationManager.chatgpt.extensionDirectory().then(setDirectory).catch(() => {}); }, []);
-  return directory;
-}
-
-function ExtensionPath({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  if (!value) return null;
-  return <div className="extension-path">
-    <div className="extension-path-head"><span>{label}</span><button type="button" onClick={() => void navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => {})}>{copied ? t("已复制") : t("复制路径")}</button></div>
-    <code>{value}</code>
-  </div>;
-}
-
 function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(available: boolean): void; state: ConversationState; onState(state: ConversationState): void; onCounts(counts: Partial<Record<ConversationState, number>> | ((old: Partial<Record<ConversationState, number>>) => Partial<Record<ConversationState, number>>)): void }) {
   const [available, setAvailable] = useState<boolean | null>(null); const [status, setStatus] = useState(t("正在连接本机 Codex…")); const [records, setRecords] = useState<ManagedConversation[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [codexProjects, setCodexProjects] = useState<Array<{ id: string; name: string }>>([]);
   const recordsByState = useRef<Partial<Record<ConversationState, ManagedConversation[]>>>({});
-  const viewStateRef = useRef<ConversationState>("active"); viewStateRef.current = state;
+  const viewStateRef = useRef<ConversationState>("active");
+  // 同上：渲染期写 ref 改为提交后同步，读取方均为异步回调中的过期守卫
+  useEffect(() => { viewStateRef.current = state; }, [state]);
   const { confirm, dialog } = useConfirm();
-  async function fetchState(target: ConversationState, full: boolean, visible: boolean): Promise<void> { const archived = target === "archived"; if (visible) { setLoading(true); setError(""); } try { const all: CodexThread[] = []; let cursor: string | null = null; do { const page = await window.conversationManager.codex.list({ cursor, archived, full }); all.push(...page.data); cursor = page.nextCursor; } while (cursor); const merged = [...new Map(all.map((thread) => [thread.id, toCodexManaged(thread, archived)])).values()]; recordsByState.current = { ...recordsByState.current, [target]: merged }; onCounts((old) => ({ ...old, [target]: merged.length })); if (visible && viewStateRef.current === target) { setRecords(merged); setNotice(t(full ? "完整校准完成：共 {n} 条任务" : "同步完成：共 {n} 条任务", { n: merged.length })); } void window.conversationManager.logs.info(`codex sync: archived=${archived}, n=${merged.length}`); } catch (cause) { if (visible && viewStateRef.current === target) setError(friendlyError(cause)); } finally { if (visible && viewStateRef.current === target) setLoading(false); } }
+  async function fetchState(target: ConversationState, full: boolean, visible: boolean): Promise<void> { const archived = target === "archived"; if (visible) { setLoading(true); setError(""); } try { const all: CodexThread[] = []; let cursor: string | null = null; do { const page = await window.conversationManager.codex.list({ cursor, archived, full }); all.push(...page.data); cursor = page.nextCursor; } while (cursor); const merged = dedupeById(all.map((thread) => toCodexManaged(thread, archived))); recordsByState.current = { ...recordsByState.current, [target]: merged }; onCounts((old) => ({ ...old, [target]: merged.length })); if (visible && viewStateRef.current === target) { setRecords(merged); setNotice(t(full ? "完整校准完成：共 {n} 条任务" : "同步完成：共 {n} 条任务", { n: merged.length })); } void window.conversationManager.logs.info(`codex sync: archived=${archived}, n=${merged.length}`); } catch (cause) { if (visible && viewStateRef.current === target) setError(friendlyError(cause)); } finally { if (visible && viewStateRef.current === target) setLoading(false); } }
   useEffect(() => { void window.conversationManager.codex.status().then((value) => { setAvailable(value.available); setStatus(value.message); onStatus?.(value.available); if (value.available) { void fetchState(state, false, true); void fetchState(state === "archived" ? "active" : "archived", false, false); } }); }, []);
   const loadProjects = useCallback((): void => { void window.conversationManager.codex.projects().then((value) => { setCodexProjects(value.projects); void window.conversationManager.logs.info(`codex projects: ${value.projects.length}${value.projects.length ? `: ${value.projects.map((project) => project.name).join(", ").slice(0, 400)}` : ""}`); }).catch(() => {}); }, []);
   useEffect(() => { if (available) loadProjects(); }, [available, loadProjects]);
@@ -270,55 +250,6 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   </section>;
 }
 
-function LogCard() {
-  const [lines, setLines] = useState<string[]>([]); const [savedPath, setSavedPath] = useState(""); const [autoScroll, setAutoScroll] = useState(true);
-  const viewRef = useRef<HTMLPreElement>(null);
-  const refresh = useCallback(() => void window.conversationManager.logs.read().then((content) => setLines(content ? content.replace(/\n$/, "").split("\n") : [])), []);
-  useEffect(() => { refresh(); return window.conversationManager.logs.onLine((line) => setLines((old) => [...old.slice(-499), line])); }, [refresh]);
-  useEffect(() => { const node = viewRef.current; if (node && autoScroll) node.scrollTop = node.scrollHeight; }, [lines, autoScroll]);
-  return <article className="log-card"><h2>{t("运行日志")}</h2><p>{t("应用运行事件的实时输出，仅保存在本机，用于问题排查。")}</p>
-    <pre className="log-view" ref={viewRef}>{lines.length ? lines.join("\n") : t("暂无日志")}</pre>
-    <div className="card-actions">
-      <button onClick={refresh}>{t("刷新日志")}</button>
-      <button onClick={() => void window.conversationManager.logs.clear().then(() => { setLines([]); setSavedPath(""); })}>{t("清空日志")}</button>
-      <button onClick={() => void window.conversationManager.logs.save().then((result) => { if (result.saved && result.path) setSavedPath(t("已保存到 {path}", { path: result.path })); })}>{t("保存日志")}</button>
-      <label className="toggle"><input type="checkbox" checked={autoScroll} onChange={(event) => setAutoScroll(event.target.checked)} />{t("自动滚动")}</label>
-    </div>
-    {savedPath && <p className="pair-feedback">{savedPath}</p>}
-  </article>;
-}
-
-function Settings({ version, lang, onLanguage, onCodexStatus }: { version: string; lang: Lang; onLanguage(value: Lang): void; onCodexStatus?(available: boolean): void }) {
-  const [update, setUpdate] = useState<UpdateState | null>(null); const [bridge, setBridge] = useState<PairingState | null>(null); const [cache, setCache] = useState<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null; lastFullSyncedAt: number | null } | null>(null); const [codexStatus, setCodexStatus] = useState<{ available: boolean; message: string; command: string } | null>(null); const [theme, setTheme] = useState<ThemePreference>("system"); const [pairMessage, setPairMessage] = useState("");
-  const extensionDirectory = useExtensionDirectory();
-  const [loginItem, setLoginItem] = useState(false);
-  useEffect(() => { void window.conversationManager.startup.get().then(setLoginItem).catch(() => {}); }, []);
-  const readCodexStatus = () => void window.conversationManager.codex.status().then((value) => { setCodexStatus(value); onCodexStatus?.(value.available); });
-  useEffect(() => { void window.conversationManager.updates.getState().then(setUpdate); void window.conversationManager.chatgpt.state().then(setBridge); void window.conversationManager.chatgpt.cacheStats().then(setCache); void window.conversationManager.theme.get().then(setTheme); readCodexStatus(); return window.conversationManager.updates.onState(setUpdate); }, []);
-  const changeTheme = (value: ThemePreference) => { setTheme(value); void window.conversationManager.theme.set(value); };
-  return <section className="settings"><p className="eyebrow">Conversation Manager v{version}</p><h1>{t("设置与隐私")}</h1><div className="settings-grid">
-    <article><h2>{t("外观")}</h2><p>{t("界面默认跟随系统深色模式自动切换，也可以手动固定为浅色或深色。")}</p><div className="card-actions"><Segmented value={theme} options={[["system", t("跟随系统")], ["light", t("浅色")], ["dark", t("深色")]] as Array<[ThemePreference, string]>} onChange={changeTheme} aria-label={t("外观")}/></div><p style={{ marginTop: 12 }}>{t("语言 / Language")}</p><div className="card-actions"><Segmented value={lang} options={[["zh", "中文"], ["en", "English"]] as Array<[Lang, string]>} onChange={onLanguage} aria-label={t("语言 / Language")}/></div></article>
-    <article><h2>{t("浏览器桥接")}</h2><p>{bridge?.connected ? `${t("已连接")}${bridge.extensionVersion && bridge.extensionVersion !== version ? ` · ${t("扩展 v{ext} · 需重载", { ext: bridge.extensionVersion })}` : ""}` : bridge?.paired ? t("已配对，等待浏览器") : t("尚未配对")}</p>{!bridge?.connected && <p>{t("无需手动配对：桌面端运行时，浏览器扩展会自动完成连接。")}</p>}{pairMessage && <p className="pair-feedback">{pairMessage}</p>}<ExtensionPath label={t("扩展目录")} value={extensionDirectory} /><div className="card-actions"><button onClick={() => { setPairMessage(t("正在清除…")); void window.conversationManager.chatgpt.clearPairing().then((value) => { setBridge(value); setPairMessage(t("已清除配对。桌面端运行时，扩展会在后台自动重新配对。")); }); }}>{t("清除配对")}</button><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>{t("打开扩展目录")}</button></div></article>
-    <article><h2>{t("ChatGPT 缓存")}</h2><p>{cache ? `${t("{n} 条记录", { n: cache.records })} · ${formatBytes(cache.bytes)}${cache.lastSyncedAt ? ` · ${t("{t}同步", { t: relativeTime(cache.lastSyncedAt) })}` : ""}${cache.lastFullSyncedAt ? ` · ${t("{t}完整校准", { t: relativeTime(cache.lastFullSyncedAt) })}` : ""}` : t("正在读取…")}</p><div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.clearCache().then(setCache)}>{t("清除缓存")}</button></div></article>
-    <article><h2>{t("Codex 后端")}</h2><p>{codexStatus?.message || t("正在自动检测统一桌面客户端…")}</p><ExtensionPath label={t("Codex 命令")} value={codexStatus?.command || ""} /><div className="card-actions">{codexStatus?.available === false && <button onClick={() => void window.conversationManager.codex.selectCommand().then(readCodexStatus)}>{t("手动选择（兜底）")}</button>}</div></article>
-    <article><h2>{t("自动更新")}</h2><p>{update?.message}</p><label className="toggle"><input type="checkbox" checked={update?.autoUpdate ?? true} onChange={(event) => void window.conversationManager.updates.setAutoUpdate(event.target.checked).then(setUpdate)}/>{t("默认自动检查更新")}</label><div className="card-actions">{update?.autoUpdate === false && <button onClick={() => void window.conversationManager.updates.check()}>{t("立即检查")}</button>}{update?.phase === "available" && !update.canAutoInstall && /Mac/i.test(navigator.platform) && <button onClick={() => void window.conversationManager.updates.download().catch(() => {})}>{t("下载更新")}</button>}{update?.phase === "available" && !update.canAutoInstall && <button onClick={() => void window.conversationManager.updates.openRelease()}>{t("打开下载页")}</button>}{update?.phase === "downloaded" && !update.canAutoInstall && /Mac/i.test(navigator.platform) && <button onClick={() => void window.conversationManager.updates.install().catch(() => {})}>{t("重启安装")}</button>}</div></article>
-    <article><h2>{t("开机启动")}</h2><p>{t("登录系统时自动启动 Conversation Manager，默认关闭。")}</p><div className="card-actions"><label className="toggle"><input type="checkbox" checked={loginItem} onChange={(event) => void window.conversationManager.startup.set(event.currentTarget.checked).then(setLoginItem).catch(() => {})}/>{t("开机时自动启动")}</label></div></article>
-    <article><h2>{t("数据备份")}</h2><p>{t("导出或恢复应用数据（缓存索引、偏好设置），用于备份或迁移到其他设备。")}</p><div className="card-actions"><button onClick={async () => { const picked = await window.conversationManager.dialog.pickDirectory(); if (!picked.directory) return; try { const r = await window.conversationManager.data.exportData(picked.directory); setPairMessage(t("已导出 {n} 个数据文件到 {dir}", { n: r.copied, dir: r.directory })); } catch (cause) { setPairMessage(friendlyError(cause)); } }}>{t("导出数据")}</button><button onClick={async () => { const picked = await window.conversationManager.dialog.pickDirectory(); if (!picked.directory) return; try { const r = await window.conversationManager.data.importData(picked.directory); setPairMessage(t("已恢复 {n} 个数据文件", { n: r.restored })); } catch (cause) { setPairMessage(friendlyError(cause)); } }}>{t("恢复数据")}</button></div></article>
-    <article><h2>{t("Codex 会话迁移")}</h2><p>{t("把本机全部 Codex 会话打包为 zip，在其他电脑导入后即可继续这些会话；不包含登录凭据。")}</p><div className="card-actions"><button onClick={async () => { try { const r = await window.conversationManager.codex.exportSessionsArchive(); if (r.cancelled) return; setPairMessage(r.count ? t("已导出 {n} 个会话到 {file}", { n: r.count, file: r.file ?? "" }) : t("没有可导出的 Codex 会话")); } catch (cause) { setPairMessage(friendlyError(cause)); } }}>{t("导出 Codex 会话")}</button><button onClick={async () => { try { const r = await window.conversationManager.codex.importSessionsArchive(); if (r.cancelled) return; setPairMessage(t("已导入 {n} 个会话（跳过 {s} 个已存在）", { n: r.imported ?? 0, s: r.skipped ?? 0 })); } catch (cause) { setPairMessage(friendlyError(cause)); } }}>{t("导入 Codex 会话")}</button></div></article>
-    <article><h2>{t("隐私边界")}</h2><p>{t("管理器只保存会话标题、ID、时间和状态。Cookie、访问令牌、正文及 Codex 认证文件不会被读取或复制。")}</p></article>
-    <article><h2>{t("连接方式")}</h2><p>{t("ChatGPT 会话复用 Chrome/Edge 登录；统一 ChatGPT/Codex 桌面客户端中的 Codex 任务通过自动发现的本机 App Server 读取。两者都不在管理器中重复登录。")}</p></article>
-    <LogCard />
-  </div></section>;
-}
-
 function toChatManaged(record: CachedConversation): ManagedConversation { return { source: "chatgpt", ...record, capabilities: record.state === "scheduled" ? [] : record.state === "archived" ? ["open", "restore", "delete"] : ["open", "archive", "delete"], running: false }; }
 function toCodexManaged(thread: CodexThread, archived: boolean): ManagedConversation { return { source: "codex", id: thread.id, title: thread.name?.trim() || thread.preview?.trim() || t("未命名任务"), preview: thread.preview?.trim().replace(/\s+/g, " ").slice(0, 160) || null, createdAt: thread.createdAt * 1000, updatedAt: thread.updatedAt * 1000, state: archived ? "archived" : "active", projectId: thread.projectId || undefined, cwd: thread.cwd, pinned: false, running: thread.status?.type === "active", current: false, capabilities: thread.status?.type === "active" ? ["open"] : archived ? ["open", "restore", "delete"] : ["open", "archive", "delete"] }; }
-function formatBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
-function message(error: unknown): string { return (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error:\s*/, ""); }
-function friendlyError(error: unknown): string {
-  const text = message(error);
-  if (/request timed out/i.test(text)) return t("同步或操作超时：浏览器可能正在休眠或网络较慢，请稍后点击“完整刷新”重试。");
-  if (/unsupported bridge command/i.test(text)) return t("浏览器扩展版本过旧，请在 chrome://extensions 中重新加载扩展后重试。");
-  return text;
-}
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

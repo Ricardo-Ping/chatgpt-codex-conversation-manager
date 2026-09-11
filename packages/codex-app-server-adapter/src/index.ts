@@ -16,6 +16,11 @@ export interface CodexThread {
   [key: string]: unknown;
 }
 
+/** 删除确认指纹：由会话 id、更新时间与运行状态构成，内容变化即失效。供桌面端与 MCP 共用。 */
+export function threadFingerprint(records: CodexThread[]): string {
+  return records.map((record) => `${record.id}:${record.updatedAt}:${record.status?.type ?? "unknown"}`).sort().join("|");
+}
+
 export interface CodexTurn {
   id: string;
   status: unknown;
@@ -177,11 +182,7 @@ export class CodexAppServer {
     const found = new Set(unique.map((record) => record.id));
     const missing = [...requested].filter((id) => !found.has(id));
     const running = selected.filter((record) => record.status?.type === "active").map((record) => record.id);
-    const fingerprint = selected
-      .map((record) => `${record.id}:${record.updatedAt}:${record.status?.type ?? "unknown"}`)
-      .sort()
-      .join("|");
-    return { records: selected, missing, running, fingerprint };
+    return { records: selected, missing, running, fingerprint: threadFingerprint(selected) };
   }
 
   async request<T>(method: string, params?: unknown, timeoutMs = 30_000): Promise<T> {

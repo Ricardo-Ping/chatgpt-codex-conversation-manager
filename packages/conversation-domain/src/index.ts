@@ -58,3 +58,13 @@ export function bulkSelectableIds(records: ManagedConversation[]): string[] {
     .filter((record) => !record.pinned && !record.current && !record.running && record.capabilities.some((value) => value === "archive" || value === "restore" || value === "delete"))
     .map((record) => record.id);
 }
+
+/** 按 id 去重并保留首次出现顺序；调用方如需按 updatedAt 排序请自行追加。 */
+export function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  return [...new Map(items.map((item) => [item.id, item])).values()];
+}
+
+/** 宽松的 x.y(.z.w) 版本号格式校验，与扩展端 background.js 的规则保持一致。 */
+export function isValidVersionFormat(value: unknown): value is string {
+  return typeof value === "string" && /^\d+(\.\d+){0,3}/.test(value);
+}

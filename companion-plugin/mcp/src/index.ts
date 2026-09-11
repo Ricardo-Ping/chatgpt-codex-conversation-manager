@@ -3,7 +3,8 @@ import { spawn } from "node:child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { CodexAppServer, type CodexThread } from "@conversation-manager/codex-app-server-adapter";
+import { CodexAppServer, threadFingerprint, type CodexThread } from "@conversation-manager/codex-app-server-adapter";
+import { dedupeById } from "@conversation-manager/conversation-domain";
 import { ConfirmationStore } from "./confirmation.js";
 
 type Action = "archive" | "restore" | "delete";
@@ -19,7 +20,7 @@ async function listAll(archived: boolean, searchTerm?: string): Promise<CodexThr
     records.push(...page.data);
     cursor = page.nextCursor;
   } while (cursor);
-  return [...new Map(records.map((record) => [record.id, record])).values()];
+  return dedupeById(records);
 }
 
 function titles(records: CodexThread[], ids: string[]): Array<{ id: string; title: string; running: boolean }> {
@@ -28,10 +29,6 @@ function titles(records: CodexThread[], ids: string[]): Array<{ id: string; titl
     const record = byId.get(id);
     return { id, title: record?.name || record?.preview || "Unknown task", running: record?.status?.type === "active" };
   });
-}
-
-function fingerprint(records: CodexThread[]): string {
-  return records.map((record) => `${record.id}:${record.updatedAt}:${record.status?.type ?? "unknown"}`).sort().join("|");
 }
 
 const server = new McpServer({ name: "conversation-manager", version: "0.7.1" });
@@ -69,7 +66,7 @@ server.registerTool("preview_batch_action", {
   const missing = deletion?.missing ?? normalized.filter((id) => !found.has(id));
   const running = deletion?.running ?? preview.filter((task) => task.running).map((task) => task.id);
   const token = !missing.length && !running.length
-    ? confirmations.issue(action, normalized, deletion?.fingerprint ?? fingerprint(records.filter((record) => normalized.includes(record.id))))
+    ? confirmations.issue(action, normalized, deletion?.fingerprint ?? threadFingerprint(records.filter((record) => normalized.includes(record.id))))
     : null;
   return { content: [{ type: "text", text: JSON.stringify({ action, count: preview.length, tasks: preview, missing, running, confirmationToken: token, expiresInSeconds: token ? 120 : 0, requiredConfirmationCount: preview.length > 20 ? preview.length : null, warning: action === "delete" ? "Permanent deletion includes every listed spawned descendant." : undefined }, null, 2) }] };
 });
@@ -88,7 +85,7 @@ for (const [name, action, destructive] of [
     const normalized = [...new Set(ids)].sort();
     const deletion = action === "delete" ? await codex.previewDelete(normalized) : null;
     const current = deletion?.records ?? (await listAll(action === "restore")).filter((record) => normalized.includes(record.id));
-    if (deletion?.missing.length || deletion?.running.length || current.some((record) => record.status?.type === "active") || fingerprint(current) !== expected.fingerprint) {
+    if (deletion?.missing.length || deletion?.running.length || current.some((record) => record.status?.type === "active") || threadFingerprint(current) !== expected.fingerprint) {
       throw new Error("Task state changed after preview. Run preview_batch_action again.");
     }
     const succeeded: string[] = [];

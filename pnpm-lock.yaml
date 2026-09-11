@@ -87,6 +87,9 @@ importers:
       '@conversation-manager/codex-app-server-adapter':
         specifier: workspace:*
         version: link:../../packages/codex-app-server-adapter
+      '@conversation-manager/conversation-domain':
+        specifier: workspace:*
+        version: link:../../packages/conversation-domain
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(supports-color@7.2.0)(zod@4.5.4)

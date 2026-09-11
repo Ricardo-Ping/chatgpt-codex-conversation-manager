@@ -242,6 +242,7 @@
     return text.replace(/\uE200[^\uE201]*\uE201/g, "").replace(/[\uE200-\uE2FF]/g, "");
   }
   function projectEntries(payload) { const found = new Map(); const visit = (value, depth = 0) => { if (!value || depth > 7) return; if (Array.isArray(value)) return value.forEach((item) => visit(item, depth + 1)); if (typeof value !== "object") return; const id = value.id || value.gizmo_id || value.project_id; if (typeof id === "string" && id.startsWith("g-p-")) { if (!found.has(id)) found.set(id, null); const name = [value.display_name, value.title, value.name].find((candidate) => typeof candidate === "string" && candidate.trim()); if (name) found.set(id, name.trim().slice(0, 100)); } Object.values(value).forEach((item) => visit(item, depth + 1)); }; visit(payload); return [...found]; }
+  // 与 conversation-domain#dedupeById 同源；扩展是无打包的独立脚本，无法引用工作区包，故在此保留等价实现
   function dedupe(records) { return [...new Map(records.map((row) => [row.id, row])).values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
   return Object.freeze({ ChatGptRepository, BridgeError, accountRows, taskRows, normalize, projectIds, projectEntries, cleanCitationMarkers });
 });
