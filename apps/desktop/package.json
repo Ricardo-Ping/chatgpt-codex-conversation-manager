@@ -79,7 +79,8 @@
           "popup.css",
           "popup.js"
         ]
-      }
+      },
+      { "from": "build/icon.png", "to": "tray-icon.png" }
     ],
     "win": {
       "target": [

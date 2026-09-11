@@ -21,6 +21,9 @@ interface MainStrings {
   noItems: string;
   readConversationFailed: string;
   windowUnavailable: string;
+  trayShow: string;
+  trayQuickSearch: string;
+  trayQuit: string;
   appStart: (version: string, packaged: string) => string;
   startupFailed: (detail: string) => string;
   noSavedCodexCommand: string;
@@ -69,6 +72,9 @@ const zh: MainStrings = {
   noItems: "未选择要保存的会话",
   readConversationFailed: "读取会话失败",
   windowUnavailable: "Window unavailable",
+  trayShow: "打开主窗口",
+  trayQuickSearch: "快速搜索",
+  trayQuit: "退出 Conversation Manager",
   appStart: (version, packaged) => `app start: v${version} packaged=${packaged}`,
   startupFailed: (detail) => `startup failed: ${detail}`,
   noSavedCodexCommand: "no saved codex command; using default discovery",
@@ -117,6 +123,9 @@ const en: MainStrings = {
   noItems: "No conversations selected",
   readConversationFailed: "Failed to read conversation",
   windowUnavailable: "Window unavailable",
+  trayShow: "Show main window",
+  trayQuickSearch: "Quick search",
+  trayQuit: "Quit Conversation Manager",
   appStart: (version, packaged) => `app start: v${version} packaged=${packaged}`,
   startupFailed: (detail) => `startup failed: ${detail}`,
   noSavedCodexCommand: "no saved codex command; using default discovery",

@@ -6,12 +6,16 @@ import { logWarn } from "./logger.js";
 
 // IPC 入口的输入清洗与一次性确认令牌。窗口引用由 main 通过 initIpcWindow 注入，
 // 避免与 main.ts 形成循环依赖。
-let getWindow: () => BrowserWindow | null = () => null;
-export function initIpcWindow(getMainWindow: () => BrowserWindow | null): void {
-  getWindow = getMainWindow;
+let getWindows: () => Array<BrowserWindow | null> = () => [];
+export function initIpcWindow(getAppWindows: () => Array<BrowserWindow | null>): void {
+  getWindows = getAppWindows;
 }
 
-export function requireRenderer(event: IpcMainInvokeEvent): void { if (!getWindow() || event.sender !== getWindow()!.webContents) throw new Error("Untrusted IPC sender"); }
+// 应用自己的窗口（主窗口 + 快速搜索窗）都在放行名单内；外部页面的 sender 一律拒绝
+export function requireRenderer(event: IpcMainInvokeEvent): void {
+  const owned = getWindows().some((window) => window && !window.isDestroyed() && event.sender === window.webContents);
+  if (!owned) throw new Error("Untrusted IPC sender");
+}
 export function requireId(value: unknown): string { if (typeof value !== "string" || !/^[A-Za-z0-9_-]{8,128}$/.test(value)) throw new Error("Invalid conversation ID"); return value; }
 export function requireAccount(value: unknown): string { if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new Error("Invalid account key"); return value; }
 export function requireIds(value: unknown): string[] { if (!Array.isArray(value) || value.length < 1 || value.length > 500) throw new Error("Invalid selection"); return [...new Set(value.map(requireId))].sort(); }

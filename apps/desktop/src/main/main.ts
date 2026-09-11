@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -35,7 +35,10 @@ let bridge: ChatGptBridgeServer;
 let indexStore: ConversationIndexStore;
 let currentChatBatchId: string | null = null;
 let activeBatchCount = 0;
-initIpcWindow(() => mainWindow);
+let tray: Tray | null = null;
+let quickWindow: BrowserWindow | null = null;
+let isQuitting = false;
+initIpcWindow(() => [mainWindow, quickWindow]);
 initUpdater({ getMainWindow: () => mainWindow, getActiveBatchCount: () => activeBatchCount });
 initPreferences({ getMainWindow: () => mainWindow, reloadIndex: () => indexStore.load() });
 registerUpdateHandlers();
@@ -48,8 +51,58 @@ async function createWindow(): Promise<void> {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => { if (url.startsWith("http")) void shell.openExternal(url).catch(() => {}); return { action: "deny" }; });
   mainWindow.webContents.on("will-navigate", (event, url) => { event.preventDefault(); if (url.startsWith("http")) void shell.openExternal(url).catch(() => {}); });
   await mainWindow.loadFile(join(__dirname, "..", "renderer", "index.html"), { query: { lang: appLanguage() } }); mainWindow.on("closed", () => { mainWindow = null; });
+  // 托盘驻留：点关闭 = 隐藏到托盘，真正退出走托盘菜单的「退出」
+  mainWindow.on("close", (event) => { if (!isQuitting) { event.preventDefault(); mainWindow?.hide(); } });
   if (logUnsubscribe) logUnsubscribe();
   logUnsubscribe = onLogLine((line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("log:appended", line); });
+}
+
+function showMainWindow(): void {
+  if (!mainWindow) { void createWindow(); return; }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show(); mainWindow.focus();
+}
+
+function trayIcon(): Electron.NativeImage {
+  const path = app.isPackaged ? join(process.resourcesPath, "tray-icon.png") : join(app.getAppPath(), "build", "icon.png");
+  const image = nativeImage.createFromPath(path);
+  return image.isEmpty() ? image : image.resize({ width: 16, height: 16 });
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: M().trayShow, click: () => showMainWindow() },
+    { label: `${M().trayQuickSearch}  (Alt+Shift+Space)`, click: () => toggleQuickSearch() },
+    { type: "separator" },
+    { label: M().trayQuit, click: () => { isQuitting = true; app.quit(); } }
+  ]));
+}
+
+function createTray(): void {
+  if (tray) return;
+  const icon = trayIcon();
+  if (icon.isEmpty()) { logWarn("tray icon missing; tray disabled"); return; }
+  tray = new Tray(icon);
+  tray.setToolTip("Conversation Manager");
+  rebuildTrayMenu();
+  tray.on("click", () => showMainWindow());
+}
+
+function createQuickWindow(): void {
+  quickWindow = new BrowserWindow({ width: 680, height: 460, show: false, frame: false, resizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, alwaysOnTop: true, backgroundColor: nativeTheme.shouldUseDarkColors ? "#0c181b" : "#f4f8f7", webPreferences: { preload: join(__dirname, "..", "..", "src", "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  quickWindow.loadFile(join(__dirname, "..", "renderer", "index.html"), { query: { lang: appLanguage(), window: "quick" } });
+  quickWindow.on("blur", () => quickWindow?.hide());
+  quickWindow.on("close", (event) => { if (!isQuitting) { event.preventDefault(); quickWindow?.hide(); } });
+}
+
+function toggleQuickSearch(): void {
+  if (!quickWindow) createQuickWindow();
+  if (!quickWindow) return;
+  if (quickWindow.isVisible()) { quickWindow.hide(); return; }
+  quickWindow.center();
+  quickWindow.show();
+  quickWindow.focus();
 }
 
 // 候选命令全量扫描失败后的冷却期：期间不再重复扫描（每次扫描都会逐个启动进程探测），
@@ -246,6 +299,11 @@ ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer
 ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return readConversationShared(requireAccount(input.accountKey), requireId(input.id));
 });
+// 快速搜索窗（托盘全局快捷键呼出）使用：与 chatgpt.search 共用同一检索管线
+ipcMain.handle("chatgpt:quick-search", (event, value) => {
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return handleLocalCommand("chatgpt.search", { query: typeof input.query === "string" ? input.query : "", limit: typeof input.limit === "number" ? input.limit : 6 });
+});
 // 读取管线：带 LRU 缓存；桌面阅读面板与本地 MCP API 共用
 async function readConversationShared(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }> {
   const cacheKey = `${accountKey}:${id}`;
@@ -317,7 +375,7 @@ ipcMain.handle("log:save", async (event) => {
   return { saved: true, path: result.filePath };
 });
 ipcMain.handle("language:get", (event) => { requireRenderer(event); return appLanguage(); });
-ipcMain.handle("language:set", async (event, value) => { requireRenderer(event); if (value !== "zh" && value !== "en") throw new Error("Invalid language"); setAppLanguage(value); await saveLanguagePreference(app.getPath("userData"), appLanguage()); refreshUpdateMessage(); return appLanguage(); });
+ipcMain.handle("language:set", async (event, value) => { requireRenderer(event); if (value !== "zh" && value !== "en") throw new Error("Invalid language"); setAppLanguage(value); await saveLanguagePreference(app.getPath("userData"), appLanguage()); refreshUpdateMessage(); rebuildTrayMenu(); return appLanguage(); });
 
 function extensionDirectory(): string { return app.isPackaged ? join(process.resourcesPath, "chatgpt-browser-bridge-extension") : join(app.getAppPath(), "..", "..", "packages", "chatgpt-browser-bridge-extension"); }
 
@@ -401,6 +459,7 @@ if (process.platform === "darwin") {
 app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); if (process.platform === "darwin") { const bundle = macAppBundlePath(app.getPath("exe")); if (bundle) void cleanupMacInstallLeftovers(bundle); } const systemDefault: AppLanguage = app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "en"; setAppLanguage(await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh")); if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" }); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret"));
 bridge.onSecretChange(() => writeMcpEndpointFile());
 bridge.setLocalHandler(handleLocalCommand);
-indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown }; if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version); } catch {} try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } await applyStartupUpdatePreferences(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
+indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown }; if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version); } catch {} try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } await applyStartupUpdatePreferences(); await createWindow(); createQuickWindow(); createTray(); if (!globalShortcut.register("Alt+Shift+Space", toggleQuickSearch)) logWarn("global shortcut Alt+Shift+Space registration failed"); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
+app.on("before-quit", () => { isQuitting = true; globalShortcut.unregisterAll(); });
 app.on("window-all-closed", () => { shutdownUpdaterTimers(); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });

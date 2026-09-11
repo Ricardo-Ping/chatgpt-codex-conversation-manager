@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     openChatGpt: () => ipcRenderer.invoke("chatgpt:open"),
     openConversation: (id) => ipcRenderer.invoke("chatgpt:open-conversation", id),
     readConversation: (accountKey, id) => ipcRenderer.invoke("chatgpt:read-conversation", { accountKey, id }),
+    quickSearch: (payload) => ipcRenderer.invoke("chatgpt:quick-search", payload),
     showExtension: () => ipcRenderer.invoke("chatgpt:show-extension"),
     extensionDirectory: () => ipcRenderer.invoke("chatgpt:extension-directory"),
     accounts: () => ipcRenderer.invoke("chatgpt:accounts"),

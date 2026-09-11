@@ -13,7 +13,7 @@ declare global {
     setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
     dialog: { pickDirectory(payload?: { defaultPath?: string }): Promise<{ directory: string | null }> };
     chatgpt: {
-      state(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; readConversation(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; showExtension(): Promise<string>; extensionDirectory(): Promise<string>;
+      state(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; readConversation(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; quickSearch(payload: { query?: string; limit?: number }): Promise<{ total: number; rows: Array<{ id: string; accountKey: string; title: string; state: string; createdAt: number | null; updatedAt: number | null; projectId: string | null }> }>; showExtension(): Promise<string>; extensionDirectory(): Promise<string>;
       accounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;
       cachedAccounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;
       projects(accountKey: string): Promise<{ projects: Array<{ id: string; name: string }> }>;

@@ -11,6 +11,7 @@ import { Segmented } from "./segmented.js";
 import { friendlyError, message } from "./ui-format.js";
 import { Settings, useExtensionDirectory, ExtensionPath } from "./settings.js";
 import { StatsPage } from "./stats.js";
+import { QuickSearch } from "./quick-search.js";
 import iconUrl from "./icon.png";
 import "./styles.css";
 import "./project-groups.css";
@@ -289,4 +290,6 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
 
 function toChatManaged(record: CachedConversation): ManagedConversation { return { source: "chatgpt", ...record, capabilities: record.state === "scheduled" ? [] : record.state === "archived" ? ["open", "restore", "delete"] : ["open", "archive", "delete"], running: false }; }
 function toCodexManaged(thread: CodexThread, archived: boolean): ManagedConversation { return { source: "codex", id: thread.id, title: thread.name?.trim() || thread.preview?.trim() || t("未命名任务"), preview: thread.preview?.trim().replace(/\s+/g, " ").slice(0, 160) || null, createdAt: thread.createdAt * 1000, updatedAt: thread.updatedAt * 1000, state: archived ? "archived" : "active", projectId: thread.projectId || undefined, cwd: thread.cwd, pinned: false, running: thread.status?.type === "active", current: false, capabilities: thread.status?.type === "active" ? ["open"] : archived ? ["open", "restore", "delete"] : ["open", "archive", "delete"] }; }
-createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+// 快速搜索窗（托盘全局快捷键呼出）复用同一渲染入口，以 query 参数区分根组件
+const quickMode = new URLSearchParams(location.search).get("window") === "quick";
+createRoot(document.getElementById("root")!).render(<React.StrictMode>{quickMode ? <QuickSearch /> : <App />}</React.StrictMode>);
