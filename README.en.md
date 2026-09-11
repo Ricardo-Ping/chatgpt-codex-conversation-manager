@@ -1,5 +1,7 @@
 # Conversation Manager
 
+> 中文版：[README.md](README.md)
+
 ![CI](https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/actions/workflows/ci.yml/badge.svg)
 
 Conversation Manager is a local desktop app for finding, filtering, organizing, and reading ChatGPT conversations and Codex tasks. Double-click any item to read its full content inside the app — with Markdown tables, syntax-highlighted code, and images — or hand it to ChatGPT / `codex resume` any time.
