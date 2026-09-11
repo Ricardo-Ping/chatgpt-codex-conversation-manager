@@ -220,11 +220,32 @@
     async request(path, accountId, options = {}) {
       let response;
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        response = await this.fetch(path, { ...options, credentials: "include", headers: { ...options.headers, ...this.headers(accountId) } });
+        response = await this.fetchWithTimeout(path, accountId, options);
         if (options.signal?.aborted || (response.status !== 429 && response.status < 500)) break;
         await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt)));
       }
       if (!response?.ok) { if (response.status === 401 || response.status === 403) this.auth = null; throw await responseError(response, "读取 ChatGPT 数据失败"); } try { return await response.json(); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回结构无法解析"); }
+    }
+    // 单次请求限时 45 秒：ChatGPT 后端偶发挂起（代理停滞、连接假死）时，
+    // 旧实现会无限等待，串行转发队列被堵死后所有读取都在桌面端 5 分钟才超时。
+    async fetchWithTimeout(path, accountId, options) {
+      const timeoutMs = typeof options.timeoutMs === "number" && options.timeoutMs >= 1_000 ? options.timeoutMs : 45_000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const onOuterAbort = () => controller.abort();
+      if (options.signal) {
+        if (options.signal.aborted) controller.abort();
+        else options.signal.addEventListener("abort", onOuterAbort);
+      }
+      try {
+        return await this.fetch(path, { ...options, signal: controller.signal, credentials: "include", headers: { ...options.headers, ...this.headers(accountId) } });
+      } catch (error) {
+        if (controller.signal.aborted && !options.signal?.aborted) throw new BridgeError("REQUEST_TIMEOUT", `ChatGPT 请求超过 ${Math.round(timeoutMs / 1000)} 秒无响应，已自动中止；请检查网络或代理后重试`, true);
+        throw error;
+      } finally {
+        clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onOuterAbort);
+      }
     }
   }
   async function responseError(response, prefix) {
