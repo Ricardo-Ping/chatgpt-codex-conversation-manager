@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --exclude dist/**"
+    "test": "vitest run --exclude \"dist/**\""
   },
   "devDependencies": {
     "typescript": "^7.0.2",
