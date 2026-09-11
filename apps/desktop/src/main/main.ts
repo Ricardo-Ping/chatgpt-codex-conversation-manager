@@ -1,6 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, type IpcMainInvokeEvent } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { mkdir, copyFile, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -9,6 +10,7 @@ import electronUpdater from "electron-updater";
 import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode, type CachedConversation } from "@conversation-manager/chatgpt-bridge-server";
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { discoverCodexCommands } from "./codex-discovery.js";
+import { buildSessionsArchive, extractSessionsArchive } from "./codex-sessions-archive.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, downloadMacArchive, fetchMacRelease, macAppBundlePath, swapMacBundle, type MacUpdateCheck } from "./mac-updater.js";
 import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, supportsAutomaticInstallation } from "./update-policy.js";
@@ -394,6 +396,27 @@ ipcMain.handle("data:import", async (event, value) => {
   let restored = 0;
   for (const file of files) { try { await copyFile(join(directory, file), join(userData, file)); restored += 1; } catch {} }
   return { restored };
+});
+ipcMain.handle("codex:export-sessions-archive", async (event) => {
+  requireRenderer(event);
+  if (!mainWindow) throw new Error(M().windowUnavailable);
+  const result = await dialog.showSaveDialog(mainWindow, { title: M().saveSessionsZip, defaultPath: `codex-sessions-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{ name: "Zip", extensions: ["zip"] }] });
+  if (result.canceled || !result.filePath) return { cancelled: true };
+  const { zip, count } = await buildSessionsArchive(join(homedir(), ".codex"));
+  if (!count) return { cancelled: false, count: 0 };
+  await writeFile(result.filePath, zip);
+  logInfo(`codex sessions archive: exported ${count} sessions -> ${result.filePath}`);
+  return { cancelled: false, count, file: result.filePath };
+});
+ipcMain.handle("codex:import-sessions-archive", async (event) => {
+  requireRenderer(event);
+  if (!mainWindow) throw new Error(M().windowUnavailable);
+  const result = await dialog.showOpenDialog(mainWindow, { title: M().pickSessionsZip, properties: ["openFile"], filters: [{ name: "Zip", extensions: ["zip"] }] });
+  if (result.canceled || !result.filePaths[0]) return { cancelled: true };
+  const zip = new Uint8Array(await readFile(result.filePaths[0]));
+  const { imported, skipped } = await extractSessionsArchive(zip, join(homedir(), ".codex"));
+  logInfo(`codex sessions archive: imported ${imported}, skipped ${skipped}`);
+  return { cancelled: false, imported, skipped };
 });
 
 type ThemePreference = "system" | "light" | "dark";

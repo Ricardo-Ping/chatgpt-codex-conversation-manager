@@ -13,6 +13,8 @@ interface MainStrings {
   idle: string;
   devMode: string;
   pickCodexExe: string;
+  pickSessionsZip: string;
+  saveSessionsZip: string;
   pickSaveDir: string;
   saveLogTitle: string;
   noDirectory: string;
@@ -59,6 +61,8 @@ const zh: MainStrings = {
   idle: "等待检查更新",
   devMode: "开发模式不检查更新",
   pickCodexExe: "选择 Codex 可执行文件",
+  pickSessionsZip: "选择 Codex 会话存档",
+  saveSessionsZip: "导出 Codex 会话",
   pickSaveDir: "选择保存位置",
   saveLogTitle: "保存运行日志",
   noDirectory: "未选择保存目录",
@@ -105,6 +109,8 @@ const en: MainStrings = {
   idle: "Waiting for update check",
   devMode: "Update checks are disabled in development",
   pickCodexExe: "Select the Codex executable",
+  pickSessionsZip: "Select the Codex session archive",
+  saveSessionsZip: "Export Codex sessions",
   pickSaveDir: "Choose where to save",
   saveLogTitle: "Save application log",
   noDirectory: "No save folder selected",

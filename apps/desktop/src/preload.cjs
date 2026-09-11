@@ -40,7 +40,9 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     open: (threadId) => ipcRenderer.invoke("codex:open", threadId),
     previewDelete: (ids) => ipcRenderer.invoke("codex:preview-delete", ids),
       runBatch: (action, ids, confirmationToken) => ipcRenderer.invoke("codex:batch", { action, ids, confirmationToken }),
-      exportSessions: (payload) => ipcRenderer.invoke("codex:export", payload)
+      exportSessions: (payload) => ipcRenderer.invoke("codex:export", payload),
+    exportSessionsArchive: () => ipcRenderer.invoke("codex:export-sessions-archive"),
+    importSessionsArchive: () => ipcRenderer.invoke("codex:import-sessions-archive")
   }),
   logs: Object.freeze({
     read: () => ipcRenderer.invoke("log:read"),
