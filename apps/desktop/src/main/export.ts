@@ -84,6 +84,24 @@ export function codexTurnsFromPayload(payload: unknown): Array<Record<string, un
   return Array.isArray(turns) ? turns.filter((turn): turn is Record<string, unknown> => Boolean(turn && typeof turn === "object")) : [];
 }
 
+// Codex 任务引用 ChatGPT 会话时，系统会在首条用户消息前注入引用块
+// （头部 + 说明 + JSON blob）。此函数移除该引用块，保留实际任务内容。
+export function stripConversationReference(text: string): string {
+  const marker = "## Referenced ChatGPT conversation:";
+  const markerIdx = text.indexOf(marker);
+  if (markerIdx === -1) return text;
+  const jsonStart = text.indexOf('{"conversationId":', markerIdx);
+  if (jsonStart === -1) return text;
+  let depth = 0;
+  let jsonEnd = text.length;
+  for (let i = jsonStart; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
+  }
+  return text.slice(jsonEnd).replace(/^\s+/, "");
+}
+
 export function codexMessagesFromTurns(turns: Array<Record<string, unknown>>): ExportMessage[] {
   const messages: ExportMessage[] = [];
   for (const turn of turns) {
@@ -94,7 +112,8 @@ export function codexMessagesFromTurns(turns: Array<Record<string, unknown>>): E
       const text = turnText(item);
       if (!text) continue;
       const role = type.includes("reason") ? "reasoning" : type.includes("user") ? "user" : type.includes("agent") || type.includes("assistant") ? "assistant" : "tool";
-      messages.push({ role, at: null, text });
+      const cleaned = role === "user" ? stripConversationReference(text) : text;
+      if (cleaned) messages.push({ role, at: null, text: cleaned });
     }
   }
   return messages;
