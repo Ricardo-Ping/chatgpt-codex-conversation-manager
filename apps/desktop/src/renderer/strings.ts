@@ -108,7 +108,7 @@ const en: Record<string, string> = {
   "复制路径": "Copy path",
   "已复制": "Copied",
   "复制": "Copy",
-  "在终端打开": "Open in terminal",
+  "在应用中打开": "Open in app",
   "{n} 条消息": "{n} messages",
   "复制全文": "Copy all",
   "已复制全文": "All copied",

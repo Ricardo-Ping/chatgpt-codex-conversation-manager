@@ -283,19 +283,26 @@ ipcMain.handle("codex:open", async (event, value) => {
   const id = requireId(value);
   const fallback = () => { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; };
   try {
-    // 保存的命令可能因客户端升级失效（版本化目录被替换），先验证再启动
-    if (codexCommand !== "codex") await stat(codexCommand);
-    const target = terminalResumeSpawn(codexCommand, id);
-    // Windows/macOS 启动器是短命进程：退出码非 0 说明启动终端失败；Linux 直接跑 TUI，不会退出，靠超时判成功
-    const opened = await new Promise<boolean>((resolve) => {
-      const child = spawn(target.file, target.args, target.options);
-      child.unref();
-      child.once("error", () => resolve(false));
-      if (process.platform !== "linux") child.once("exit", (code) => resolve(code === 0));
-      setTimeout(() => resolve(true), 4000);
-    });
-    return opened ? { opened: true } : fallback();
-  } catch { return fallback(); }
+    // 优先走 ChatGPT 桌面客户端注册的 codex:// 深链，在其原生界面中直接打开该会话
+    await shell.openExternal(`codex://threads/${id}`);
+    return { opened: true };
+  } catch {
+    // 深链不可用（未安装桌面客户端或协议未注册）时回退到终端 CLI
+    try {
+      // 保存的命令可能因客户端升级失效（版本化目录被替换），先验证再启动
+      if (codexCommand !== "codex") await stat(codexCommand);
+      const target = terminalResumeSpawn(codexCommand, id);
+      // Windows/macOS 启动器是短命进程：退出码非 0 说明启动终端失败；Linux 直接跑 TUI，不会退出，靠超时判成功
+      const opened = await new Promise<boolean>((resolve) => {
+        const child = spawn(target.file, target.args, target.options);
+        child.unref();
+        child.once("error", () => resolve(false));
+        if (process.platform !== "linux") child.once("exit", (code) => resolve(code === 0));
+        setTimeout(() => resolve(true), 4000);
+      });
+      return opened ? { opened: true } : fallback();
+    } catch { return fallback(); }
+  }
 });
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || M().unnamedTask, derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
 ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
