@@ -26,15 +26,26 @@ export class ChatGptBridgeServer {
   #lastSeen = 0;
   #extensionVersion: string | null = null;
   #expectedExtensionVersion: string | null = null;
+  #localHandler: ((type: string, payload: unknown) => Promise<unknown>) | null = null;
+  #onSecretChange: ((secret: string | null) => void) | null = null;
 
   constructor(secretFile: string, port = BRIDGE_PORT) { this.#secretFile = secretFile; this.#port = port; }
 
   // 桌面端把自己打包的扩展版本号告诉扩展，扩展发现落后即可自行 reload 升级
   setExpectedExtensionVersion(version: string | null): void { this.#expectedExtensionVersion = version; }
 
+  // 本地 API（/v1/local）：供本机 MCP server 等受信进程复用命令管道；由桌面端注册具体语义
+  setLocalHandler(handler: (type: string, payload: unknown) => Promise<unknown>): void { this.#localHandler = handler; }
+
+  // 密钥变化（启动加载/自动配对/清除配对）时回调，桌面端据此维护 MCP 端点描述文件
+  onSecretChange(callback: (secret: string | null) => void): void { this.#onSecretChange = callback; }
+
+  secretText(): string | null { return this.#secret?.toString("base64url") ?? null; }
+
   async start(): Promise<void> {
     if (this.#server) return;
     try { this.#secret = Buffer.from((await readFile(this.#secretFile, "utf8")).trim(), "base64url"); } catch { this.#secret = null; }
+    this.#onSecretChange?.(this.secretText());
     this.#server = createServer((req, res) => void this.#handle(req, res));
     await new Promise<void>((resolve, reject) => {
       this.#server!.once("error", reject);
@@ -54,7 +65,7 @@ export class ChatGptBridgeServer {
     return { paired: Boolean(this.#secret), connected: now - this.#lastSeen < 15_000, extensionVersion: this.#extensionVersion };
   }
 
-  async clearPairing(): Promise<void> { this.#secret = null; await rm(this.#secretFile, { force: true }); }
+  async clearPairing(): Promise<void> { this.#secret = null; await rm(this.#secretFile, { force: true }); this.#onSecretChange?.(null); }
 
   request(type: BridgeCommandType, payload: unknown, timeoutMs = 60_000): Promise<BridgeResult> {
     const requestId = randomBytes(16).toString("hex");
@@ -76,6 +87,17 @@ export class ChatGptBridgeServer {
       }
       if (req.method === "GET" && req.url === "/v1/health") { const state = this.state(); return json(res, 200, { protocolVersion: 1, paired: state.paired, connected: state.connected }); }
       if (req.method === "POST" && req.url === "/v1/pair/auto") { if (!isExtensionOrigin(req.headers.origin)) return json(res, 403, { error: "invalid_origin" }); return await this.#pairAutomatically(res); }
+      // 本地 API：与扩展共用密钥但独立分支，不参与扩展在线状态（lastSeen）统计
+      if (req.method === "POST" && req.url === "/v1/local") {
+        if (!this.#authorize(req)) return json(res, 401, { error: "unauthorized" });
+        if (!this.#localHandler) return json(res, 503, { error: "local_api_unavailable" });
+        const body = await readJson<{ type?: unknown; payload?: unknown }>(req);
+        if (typeof body.type !== "string" || body.type.length === 0 || body.type.length > 64) return json(res, 400, { error: "invalid_type" });
+        const payload = body.payload && typeof body.payload === "object" ? body.payload : {};
+        try { return json(res, 200, { ok: true, result: await this.#localHandler(body.type, payload) }); }
+        catch (error) { return json(res, 200, { ok: false, error: error instanceof Error ? error.message : "local_command_failed" });
+        }
+      }
       if (!this.#authorize(req)) return json(res, 401, { error: "unauthorized" });
       this.#lastSeen = Date.now();
       const reported = req.headers["x-extension-version"];
@@ -104,6 +126,7 @@ export class ChatGptBridgeServer {
     this.#secret = randomBytes(32);
     await mkdir(dirname(this.#secretFile), { recursive: true });
     await writeFile(this.#secretFile, this.#secret.toString("base64url"), { encoding: "utf8", mode: 0o600 });
+    this.#onSecretChange?.(this.secretText());
     json(res, 200, { protocolVersion: 1, secret: this.#secret.toString("base64url") });
   }
 

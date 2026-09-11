@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from "@conversation-manager/chatgpt-bridge-server";
+import { BRIDGE_PORT, ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from "@conversation-manager/chatgpt-bridge-server";
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { isValidVersionFormat } from "@conversation-manager/conversation-domain";
 import { discoverCodexCommands } from "./codex-discovery.js";
@@ -101,11 +101,20 @@ ipcMain.handle("chatgpt:preview-delete", (event, value) => { requireRenderer(eve
 ipcMain.handle("chatgpt:batch", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const action = input.action; if (action !== "archive" && action !== "restore" && action !== "delete" && action !== "add-to-project" && action !== "remove-from-project") throw new Error("Invalid batch action"); const ids = requireIds(input.ids); const accountKey = requireAccount(input.accountKey); if (action === "delete") validateConfirmation("chatgpt", ids, input.confirmationToken);
   const projectId = action === "add-to-project" ? typeof input.projectId === "string" && /^g-p-[A-Za-z0-9_-]{1,120}$/.test(input.projectId) ? input.projectId : null : null;
-  if (action === "add-to-project" && !projectId) throw new Error(M().projectMissing);
+  if (action === "add-to-project" || action === "remove-from-project") {
+    if (action === "add-to-project" && !projectId) throw new Error(M().projectMissing);
+    const operationId = randomUUID(); currentChatBatchId = operationId;
+    activeBatchCount += 1;
+    try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId, ...(projectId ? { projectId } : {}) }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.applyProjectMove(accountKey, succeeded, action === "add-to-project" ? projectId : null); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
+  }
+  return runChatGptBatch(accountKey, action, ids);
+});
+// 归档/恢复/删除共用管线：桌面 UI 与本地 MCP API 走同一条路，批量计数期间暂停更新安装
+async function runChatGptBatch(accountKey: string, action: "archive" | "restore" | "delete", ids: string[]): Promise<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed: string[] }> {
   const operationId = randomUUID(); currentChatBatchId = operationId;
   activeBatchCount += 1;
-  try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId, ...(projectId ? { projectId } : {}) }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; if (action === "add-to-project" || action === "remove-from-project") await indexStore.applyProjectMove(accountKey, succeeded, action === "add-to-project" ? projectId : null); else await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
-});
+  try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
+}
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
@@ -117,6 +126,10 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
   const rawItems = Array.isArray(input.items) ? input.items : [];
   const items = rawItems.map((item) => { const row = item && typeof item === "object" ? item as Record<string, unknown> : {}; return { id: requireId(row.id), title: typeof row.title === "string" ? row.title.slice(0, 120) : "" }; });
   if (!items.length) throw new Error(M().noItems);
+  return exportChatGptSessions(accountKey, directory, items);
+});
+// 导出管线：桌面 UI 与本地 MCP API 共用；逐会话经扩展读取正文并写出 Markdown（含图片本地化）
+async function exportChatGptSessions(accountKey: string, directory: string, items: Array<{ id: string; title: string }>): Promise<{ saved: number; failed: Array<{ id: string; message: string }>; directory: string }> {
   await mkdir(directory, { recursive: true });
   let saved = 0; const failed: Array<{ id: string; message: string }> = [];
   let cursor = 0;
@@ -160,7 +173,7 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
   await Promise.all(workers);
   logInfo(`chatgpt export: saved ${saved}, failed ${failed.length}`);
   return { saved, failed, directory };
-});
+}
 ipcMain.handle("codex:export", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const directory = typeof input.directory === "string" && input.directory ? input.directory : null;
@@ -231,7 +244,10 @@ ipcMain.handle("codex:open", async (event, value) => {
 });
 ipcMain.handle("codex:preview-delete", async (event, value) => { requireRenderer(event); const ids = requireIds(value); const preview = await codex.previewDelete(ids); let confirmationToken: string | null = null; if (!preview.missing.length && !preview.running.length) confirmationToken = rememberConfirmation("codex", ids, preview.fingerprint); return { tasks: preview.records.map((record) => ({ id: record.id, title: record.name?.trim() || record.preview?.trim() || M().unnamedTask, derived: !ids.includes(record.id) })), missing: preview.missing, running: preview.running, confirmationToken }; });
 ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
-  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const id = requireId(input.id);
+  requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return readConversationShared(requireAccount(input.accountKey), requireId(input.id));
+});
+// 读取管线：带 LRU 缓存；桌面阅读面板与本地 MCP API 共用
+async function readConversationShared(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }> {
   const cacheKey = `${accountKey}:${id}`;
   const cached = readConversationCache.get(cacheKey);
   if (cached && Date.now() - cached.at < READ_CACHE_TTL_MS) { cached.at = Date.now(); readConversationCache.delete(cacheKey); readConversationCache.set(cacheKey, cached); return cached.data; }
@@ -243,7 +259,7 @@ ipcMain.handle("chatgpt:read-conversation", async (event, value) => {
   readConversationCache.set(cacheKey, { at: Date.now(), data });
   if (readConversationCache.size > READ_CACHE_MAX) { const oldest = readConversationCache.keys().next().value; if (oldest !== undefined) readConversationCache.delete(oldest); }
   return data;
-});
+}
 ipcMain.handle("codex:read-thread", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const id = requireId(input.threadId);
   const payload = await codex.readThread(id);
@@ -305,6 +321,65 @@ ipcMain.handle("language:set", async (event, value) => { requireRenderer(event);
 
 function extensionDirectory(): string { return app.isPackaged ? join(process.resourcesPath, "chatgpt-browser-bridge-extension") : join(app.getAppPath(), "..", "..", "packages", "chatgpt-browser-bridge-extension"); }
 
+// MCP 端点描述文件：让本机 MCP server（Claude Code / Cline / Cursor 等客户端）发现本地服务。
+// 密钥与 bridge-secret 同源，文件权限 0600；未配对时 secret 为 null，MCP 侧据此给出明确提示
+const MCP_ENDPOINT_FILE = join(homedir(), ".conversation-manager", "mcp-endpoint.json");
+function writeMcpEndpointFile(): void {
+  const payload = { protocolVersion: 1, port: BRIDGE_PORT, secret: bridge.secretText(), pid: process.pid, version: app.getVersion(), updatedAt: new Date().toISOString() };
+  mkdir(dirname(MCP_ENDPOINT_FILE), { recursive: true }).then(() => writeFile(MCP_ENDPOINT_FILE, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 })).catch((error) => logWarn(`mcp endpoint file write failed: ${error instanceof Error ? error.message : String(error)}`));
+}
+
+// 本地 API 语义层：MCP 的 ChatGPT 工具全部路由到这里，与桌面 UI 共用同一条命令管线
+async function handleLocalCommand(type: string, payload: unknown): Promise<unknown> {
+  const input = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const resolveAccount = (): string => {
+    const provided = typeof input.accountKey === "string" ? input.accountKey : "";
+    if (provided) return requireAccount(provided);
+    const first = indexStore.accounts()[0]?.key;
+    if (!first) throw new Error("No ChatGPT account has been synced yet. Sync once in the desktop app first.");
+    return first;
+  };
+  if (type === "chatgpt.status") {
+    const state = bridge.state();
+    return { paired: state.paired, extensionConnected: state.connected, version: app.getVersion(), accounts: indexStore.accounts().map((account) => ({ key: account.key, label: account.label })) };
+  }
+  if (type === "chatgpt.accounts") return { accounts: indexStore.accounts().map((account) => ({ key: account.key, label: account.label })) };
+  if (type === "chatgpt.search") {
+    const query = typeof input.query === "string" ? input.query.trim().toLowerCase() : "";
+    const state = input.state === "active" || input.state === "archived" || input.state === "scheduled" ? input.state : null;
+    const limit = typeof input.limit === "number" && input.limit >= 1 && input.limit <= 100 ? Math.floor(input.limit) : 20;
+    const rows: Array<{ id: string; accountKey: string; title: string; state: string; createdAt: number | null; updatedAt: number | null; projectId: string | null }> = [];
+    for (const account of indexStore.accounts()) {
+      for (const st of ["active", "archived", "scheduled"] as const) {
+        if (state && st !== state) continue;
+        for (const record of indexStore.read(account.key, st)?.records ?? []) {
+          if (query && !record.title.toLowerCase().includes(query)) continue;
+          rows.push({ id: record.id, accountKey: account.key, title: record.title, state: st, createdAt: record.createdAt, updatedAt: record.updatedAt, projectId: record.projectId ?? null });
+        }
+      }
+    }
+    rows.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    return { total: rows.length, rows: rows.slice(0, limit) };
+  }
+  if (type === "chatgpt.read") return readConversationShared(resolveAccount(), requireId(input.id));
+  if (type === "chatgpt.batch") {
+    const action = input.action;
+    if (action !== "archive" && action !== "restore") throw new Error("Only archive and restore are supported over the local API");
+    const ids = requireIds(input.ids);
+    return runChatGptBatch(resolveAccount(), action, ids);
+  }
+  if (type === "chatgpt.export") {
+    const accountKey = resolveAccount();
+    const directory = typeof input.directory === "string" && input.directory.trim() ? input.directory.trim() : null;
+    if (!directory) throw new Error(M().noDirectory);
+    const rawIds = Array.isArray(input.ids) ? input.ids : [];
+    const items = rawIds.map((id) => ({ id: requireId(id), title: "" }));
+    if (!items.length) throw new Error(M().noItems);
+    return exportChatGptSessions(accountKey, directory, items);
+  }
+  throw new Error(`Unknown local command: ${type}`);
+}
+
 // 开发/测试时可用 CM_USER_DATA_DIR 指向独立目录，避免与已安装实例共享单实例锁和缓存（必须在锁之前设置）
 if (!app.isPackaged && process.env.CM_USER_DATA_DIR) app.setPath("userData", process.env.CM_USER_DATA_DIR);
 const singleInstance = app.requestSingleInstanceLock();
@@ -323,6 +398,9 @@ if (process.platform === "darwin") {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
-app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); if (process.platform === "darwin") { const bundle = macAppBundlePath(app.getPath("exe")); if (bundle) void cleanupMacInstallLeftovers(bundle); } const systemDefault: AppLanguage = app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "en"; setAppLanguage(await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh")); if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" }); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret")); indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown }; if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version); } catch {} try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } await applyStartupUpdatePreferences(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
+app.whenReady().then(async () => { nativeTheme.themeSource = await loadThemePreference(); const userData = app.getPath("userData"); initLogger(userData); if (process.platform === "darwin") { const bundle = macAppBundlePath(app.getPath("exe")); if (bundle) void cleanupMacInstallLeftovers(bundle); } const systemDefault: AppLanguage = app.getLocale().toLowerCase().startsWith("zh") ? "zh" : "en"; setAppLanguage(await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh")); if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" }); logInfo(M().appStart(app.getVersion(), String(app.isPackaged))); try { const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown }; if (typeof saved.command === "string" && saved.command.length <= 1_000) { codexCommand = saved.command; codex = new CodexAppServer(codexCommand); } } catch {} bridge = new ChatGptBridgeServer(join(userData, "bridge-secret"));
+bridge.onSecretChange(() => writeMcpEndpointFile());
+bridge.setLocalHandler(handleLocalCommand);
+indexStore = new ConversationIndexStore(join(userData, "conversation-index.json")); await indexStore.load(); try { const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown }; if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version); } catch {} try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); } await applyStartupUpdatePreferences(); await createWindow(); scheduleAutomaticUpdates(); }).catch((error) => { logWarn(`startup failed: ${error instanceof Error ? error.message : String(error)}`); console.error(error); app.quit(); });
 app.on("window-all-closed", () => { shutdownUpdaterTimers(); codex.close(); void bridge?.close(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });

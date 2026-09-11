@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -11,6 +14,38 @@ type Action = "archive" | "restore" | "delete";
 const codex = new CodexAppServer();
 const confirmations = new ConfirmationStore<Action>();
 const idSchema = z.string().regex(/^[A-Za-z0-9_-]{8,128}$/);
+
+// ── ChatGPT 侧：通过桌面端本地 API 访问（端点描述文件由桌面端写入 ~/.conversation-manager/）
+interface McpEndpoint { protocolVersion: number; port: number; secret: string | null; pid: number; version: string; updatedAt: string }
+const endpointFile = process.env.CM_MCP_ENDPOINT_FILE || join(homedir(), ".conversation-manager", "mcp-endpoint.json");
+
+async function loadEndpoint(): Promise<McpEndpoint> {
+  const raw = JSON.parse(await readFile(endpointFile, "utf8")) as McpEndpoint;
+  if (raw.protocolVersion !== 1 || typeof raw.port !== "number") throw new Error(`Invalid endpoint descriptor: ${endpointFile}`);
+  return raw;
+}
+
+async function local<T>(type: string, payload: Record<string, unknown> = {}): Promise<T> {
+  const endpoint = await loadEndpoint().catch((error) => {
+    throw new Error(`Conversation Manager desktop endpoint not found (${endpointFile}). Start the desktop app once so it writes the file. Original error: ${error instanceof Error ? error.message : String(error)}`);
+  });
+  if (!endpoint.secret) throw new Error("Conversation Manager is running but not paired yet. Load the browser extension and let it pair once, then retry.");
+  let response: Response;
+  try {
+    response = await fetch(`http://127.0.0.1:${endpoint.port}/v1/local`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${endpoint.secret}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ type, payload })
+    });
+  } catch (error) {
+    throw new Error(`Conversation Manager desktop app is not reachable on port ${endpoint.port}. Is it running? (${error instanceof Error ? error.message : String(error)})`);
+  }
+  const body = await response.json() as { ok?: boolean; result?: T; error?: string };
+  if (response.status === 401) throw new Error("Local API rejected the secret. Restart the desktop app so it rewrites the endpoint file.");
+  if (!response.ok || body.ok === false) throw new Error(body.error || `local command failed with status ${response.status}`);
+  return body.result as T;
+}
+
 
 async function listAll(archived: boolean, searchTerm?: string): Promise<CodexThread[]> {
   const records: CodexThread[] = [];
@@ -103,6 +138,58 @@ for (const [name, action, destructive] of [
     return { content: [{ type: "text", text: JSON.stringify({ succeeded, failed }, null, 2) }] };
   });
 }
+
+const accountKeySchema = z.string().regex(/^[a-f0-9]{64}$/).optional();
+
+server.registerTool("chatgpt_status", {
+  description: "Check the Conversation Manager desktop app: pairing state, browser-extension connectivity, and synced ChatGPT accounts.",
+  inputSchema: {},
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+}, async () => {
+  const status = await local<{ paired: boolean; extensionConnected: boolean; version: string; accounts: Array<{ key: string; label: string }> }>("chatgpt.status");
+  return { content: [{ type: "text", text: JSON.stringify({ desktopRunning: true, paired: status.paired, extensionConnected: status.extensionConnected, version: status.version, accounts: status.accounts }, null, 2) }] };
+});
+
+server.registerTool("search_chatgpt_conversations", {
+  description: "Search locally indexed ChatGPT conversations by title (case-insensitive substring). Reads the desktop cache, works without the browser running.",
+  inputSchema: { query: z.string().max(200).optional(), state: z.enum(["active", "archived", "scheduled", "all"]).default("all"), limit: z.number().int().min(1).max(100).default(20), accountKey: accountKeySchema },
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+}, async ({ query, state, limit, accountKey }) => {
+  const result = await local<{ total: number; rows: Array<{ id: string; accountKey: string; title: string; state: string; createdAt: number | null; updatedAt: number | null; projectId: string | null }> }>("chatgpt.search", { query: query ?? "", state: state === "all" ? null : state, limit, accountKey });
+  return { content: [{ type: "text", text: JSON.stringify({ total: result.total, returning: result.rows.length, conversations: result.rows.map((row) => ({ id: row.id, accountKey: row.accountKey, title: row.title, state: row.state, updatedAt: row.updatedAt, projectId: row.projectId })) }, null, 2) }] };
+});
+
+server.registerTool("read_chatgpt_conversation", {
+  description: "Read the full message content of one ChatGPT conversation. Requires the desktop app and the browser extension to be online.",
+  inputSchema: { id: idSchema, accountKey: accountKeySchema },
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+}, async ({ id, accountKey }) => {
+  const data = await local<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>("chatgpt.read", { id, accountKey });
+  return { content: [{ type: "text", text: JSON.stringify({ title: data.title, messageCount: data.messages.length, messages: data.messages }, null, 2) }] };
+});
+
+for (const [name, action, destructive] of [
+  ["archive_chatgpt_conversations", "archive", false],
+  ["restore_chatgpt_conversations", "restore", false]
+] as const) {
+  server.registerTool(name, {
+    description: `${action} ChatGPT conversations through the desktop app. Affects every account matched by the ids; requires the browser extension to be online.`,
+    inputSchema: { ids: z.array(idSchema).min(1).max(500), accountKey: accountKeySchema },
+    annotations: { readOnlyHint: false, destructiveHint: destructive, openWorldHint: false }
+  }, async ({ ids, accountKey }) => {
+    const result = await local<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed: string[] }>("chatgpt.batch", { action, ids, accountKey });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  });
+}
+
+server.registerTool("export_chatgpt_conversations", {
+  description: "Export ChatGPT conversations to a local directory as Markdown files (images are downloaded next to them). Requires the browser extension to be online.",
+  inputSchema: { ids: z.array(idSchema).min(1).max(200), directory: z.string().min(1).max(500), accountKey: accountKeySchema },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true }
+}, async ({ ids, directory, accountKey }) => {
+  const result = await local<{ saved: number; failed: Array<{ id: string; message: string }>; directory: string }>("chatgpt.export", { ids, directory, accountKey });
+  return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+});
 
 server.registerTool("open_conversation_manager", {
   description: "Open the installed Conversation Manager application.",

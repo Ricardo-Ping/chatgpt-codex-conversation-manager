@@ -62,6 +62,40 @@ describe("ChatGptBridgeServer", () => {
     const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     await expect(commands.json()).resolves.toEqual([]);
   });
+
+  it("serves authenticated local commands without marking the extension connected", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-local-")); const port = 36000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const secret = await pairAutomatically(server, port);
+    const seen: Array<{ type: string; payload: unknown }> = [];
+    server.setLocalHandler(async (type, payload) => { seen.push({ type, payload }); return { echo: type, connected: server.state().connected };
+    });
+
+    const denied = await fetch(`http://127.0.0.1:${port}/v1/local`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "chatgpt.search" }) });
+    expect(denied.status).toBe(401);
+
+    const response = await fetch(`http://127.0.0.1:${port}/v1/local`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ type: "chatgpt.search", payload: { query: "sql" } }) });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { ok: boolean; result: { echo: string; connected: boolean } };
+    expect(body.ok).toBe(true);
+    expect(body.result.echo).toBe("chatgpt.search");
+    expect(body.result.connected).toBe(false);
+    expect(seen[0]).toMatchObject({ type: "chatgpt.search", payload: { query: "sql" } });
+    expect(server.state().connected).toBe(false);
+  });
+
+  it("exposes the loaded secret through secretText for endpoint discovery", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-secret-")); const port = 37000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server);
+    const changes: Array<string | null> = [];
+    server.onSecretChange((secret) => changes.push(secret));
+    await server.start();
+    expect(server.secretText()).toBeNull();
+    expect(changes).toEqual([null]);
+    const secret = await pairAutomatically(server, port);
+    expect(server.secretText()).toBe(secret);
+    expect(changes[changes.length - 1]).toBe(secret);
+  });
 });
 
 describe("ConversationIndexStore", () => {
