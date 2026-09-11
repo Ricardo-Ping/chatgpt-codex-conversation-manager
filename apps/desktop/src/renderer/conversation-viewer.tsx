@@ -48,7 +48,13 @@ export function renderMarkdown(text: string): string {
     pre.replaceChildren(bar, newCode);
   });
   container.querySelectorAll("a").forEach((link) => { link.setAttribute("target", "_blank"); link.setAttribute("rel", "noopener noreferrer"); });
-  container.querySelectorAll("img").forEach((image) => image.setAttribute("loading", "lazy"));
+  container.querySelectorAll("img").forEach((image) => {
+    image.setAttribute("loading", "lazy");
+    const src = image.getAttribute("src") || "";
+    if (/^[A-Za-z]:[\\/]/.test(src) && !src.startsWith("file://")) {
+      image.setAttribute("src", "file:///" + src.replace(/\\/g, "/"));
+    }
+  });
   return container.innerHTML;
 }
 
