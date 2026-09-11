@@ -17,7 +17,7 @@ import { DEFAULT_AUTO_UPDATE, isUpdateInstallSafe, parseAutoUpdatePreference, su
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
 import { loadLanguagePreference, saveLanguagePreference, type AppLanguage } from "./language.js";
 import { MAIN_STRINGS } from "./strings.js";
-import { chatgptTranscriptMarkdown, codexMessagesFromTurns, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, safeFileName } from "./export.js";
+import { applyImageRewrites, chatGptImageDir, chatgptTranscriptMarkdown, codexMessagesFromTurns, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, extractChatGptImageUrls, safeFileName } from "./export.js";
 
 const { autoUpdater } = electronUpdater;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -215,8 +215,10 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
         const messages = rawMessages.map((message) => { const row = message && typeof message === "object" ? message as Record<string, unknown> : {}; return { role: typeof row.role === "string" ? row.role : "other", at: typeof row.at === "number" ? row.at : null, text: typeof row.text === "string" ? row.text : "" }; });
         const transcript = { id: item.id, title: typeof payload.title === "string" ? payload.title.slice(0, 200) : item.title, messages };
         const markdown = chatgptTranscriptMarkdown(transcript, Date.now(), "ChatGPT", LANG);
-        const imagesDir = join(directory, "images");
-        const imageUrls: string[] = [...new Set([...markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)].map((m) => m[1]))].filter((u): u is string => Boolean(u)).slice(0, 30);
+        // 图片按会话存放在独立子目录，避免批量导出时同名互相覆盖
+        const imageDirName = chatGptImageDir(transcript.title || item.title, item.id);
+        let rewritten = markdown;
+        const imageUrls = extractChatGptImageUrls(markdown);
         for (let imgIdx = 0; imgIdx < imageUrls.length; imgIdx++) {
           const imgUrl: string = imageUrls[imgIdx] ?? "";
           if (!imgUrl) continue;
@@ -226,11 +228,14 @@ ipcMain.handle("chatgpt:export", async (event, value) => {
             const buf = Buffer.from(await res.arrayBuffer());
             const extMatch = imgUrl.match(/\.(png|jpe?g|webp|gif)/i);
             const ext = extMatch?.[1]?.toLowerCase() ?? "png";
-            await mkdir(imagesDir, { recursive: true });
-            await writeFile(join(imagesDir, `img-${imgIdx + 1}.${ext}`), buf);
+            const relativePath = `images/${imageDirName}/img-${imgIdx + 1}.${ext}`;
+            await mkdir(join(directory, "images", imageDirName), { recursive: true });
+            await writeFile(join(directory, relativePath), buf);
+            // 只把成功下载的 URL 改写为相对路径；下载失败的保留原始远程链接
+            rewritten = applyImageRewrites(rewritten, [[imgUrl, relativePath]]);
           } catch {}
         }
-        await writeFile(join(directory, safeFileName(transcript.title || item.title, item.id)), markdown, "utf8");
+        await writeFile(join(directory, safeFileName(transcript.title || item.title, item.id)), rewritten, "utf8");
         saved += 1;
       } catch (error) { failed.push({ id: item.id, message: error instanceof Error ? error.message : String(error) }); }
     }
@@ -283,7 +288,10 @@ ipcMain.handle("codex:open", async (event, value) => {
   const id = requireId(value);
   const fallback = () => { clipboard.writeText(`${codexCommand} resume ${id}`); return { opened: false, copied: true }; };
   try {
-    // 优先走 ChatGPT 桌面客户端注册的 codex:// 深链，在其原生界面中直接打开该会话
+    // 仅当系统确实注册了 codex:// 处理程序时才走深链：未注册协议的 openExternal 在
+    // Windows 可能弹系统选择框、macOS 可能静默成功，不能依赖它的 reject 触发回退
+    const handler = await app.getApplicationNameForProtocol(`codex://threads/${id}`);
+    if (!handler) throw new Error("codex:// protocol has no handler");
     await shell.openExternal(`codex://threads/${id}`);
     return { opened: true };
   } catch {

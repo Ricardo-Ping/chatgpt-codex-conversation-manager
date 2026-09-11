@@ -41,6 +41,19 @@ export function safeFileName(title: string, id: string): string {
   return `${base || "未命名会话"}-${suffix || "export"}.md`;
 }
 
+export function extractChatGptImageUrls(markdown: string): string[] {
+  return [...new Set([...markdown.matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)].map((m) => m[1] ?? ""))].filter(Boolean);
+}
+
+// 导出图片目录按会话隔离：复用安全文件名（已带 id 前缀防碰撞），空白折叠为 - 保证 markdown 链接可直接使用
+export function chatGptImageDir(title: string, id: string): string {
+  return safeFileName(title, id).replace(/\.md$/, "").replace(/\s+/g, "-");
+}
+
+export function applyImageRewrites(markdown: string, rewrites: Array<[string, string]>): string {
+  return rewrites.reduce((acc, [url, path]) => acc.split(url).join(path), markdown);
+}
+
 export function formatTimestamp(at: number | null, lang: ExportLang = "zh"): string {
   if (at === null || !Number.isFinite(at)) return lang === "en" ? "time unknown" : "时间未知";
   return new Date(at).toLocaleString(lang === "en" ? "en-US" : "zh-CN", { hour12: false });
