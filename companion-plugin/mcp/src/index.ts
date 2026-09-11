@@ -34,7 +34,7 @@ function fingerprint(records: CodexThread[]): string {
   return records.map((record) => `${record.id}:${record.updatedAt}:${record.status?.type ?? "unknown"}`).sort().join("|");
 }
 
-const server = new McpServer({ name: "conversation-manager", version: "0.7.0" });
+const server = new McpServer({ name: "conversation-manager", version: "0.7.1" });
 
 server.registerTool("desktop_status", {
   description: "Check whether the local Codex App Server is available.",
