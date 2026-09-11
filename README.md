@@ -138,14 +138,6 @@ curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/rel
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
 - Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 
-## Roadmap（规划方向，尚未实现）
-
-- 本地全文搜索（正文索引可选，纯本地）
-- 统计洞察面板（会话趋势、平台与项目分布）
-- 自动定时备份（版本化保留）
-- MCP 扩展至 ChatGPT 会话管理
-- LLM 语义搜索与自动摘要（可选本地或云端模型，默认关闭）
-
 ## License
 
 MIT
