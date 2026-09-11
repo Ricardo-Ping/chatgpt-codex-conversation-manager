@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { bulkSelectableIds, dedupeById, filterConversations, type AgeFilter, type ConversationState, type ManagedConversation } from "@conversation-manager/conversation-domain";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -98,8 +98,9 @@ function ChatGptWorkspace({ bridge, state, onState, kind, onKind, onCounts }: { 
   const [records, setRecords] = useState<ManagedConversation[]>([]); const [syncedAt, setSyncedAt] = useState<number | null>(null); const [compatible, setCompatible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const [projectNames, setProjectNames] = useState<Record<string, string>>({}); const [chatProjects, setChatProjects] = useState<Array<{ id: string; name: string }>>([]); const [projectsLoading, setProjectsLoading] = useState(false);
   const syncingViewsRef = useRef(new Set<string>()); const currentViewRef = useRef("");
-  // 渲染期间写 ref 是 React 反模式；此 ref 仅被异步回调用作过期守卫，随提交后同步即可
-  useEffect(() => { currentViewRef.current = `${accountKey}:${state}`; }, [accountKey, state]);
+  // ref 同步必须发生在 commit 阶段（useLayoutEffect），早于任何 promise 微任务：
+  // fetchState 的完成回调依赖它做新视图守卫，被动 useEffect 会留下读到旧值的微窗口
+  useLayoutEffect(() => { currentViewRef.current = `${accountKey}:${state}`; }, [accountKey, state]);
   const { confirm, dialog } = useConfirm();
   useEffect(() => { void window.conversationManager.chatgpt.cachedAccounts().then((value) => { setAccounts(value.accounts); setAccountKey(value.accounts[0]?.key || ""); }); }, []);
   useEffect(() => { if (!bridge.connected) return; void window.conversationManager.chatgpt.accounts().then((value) => { setAccounts(value.accounts); setAccountKey((old) => old || value.accounts.find((item) => item.isDefault)?.key || value.accounts[0]?.key || ""); }).catch((cause) => setError(friendlyError(cause))); }, [bridge.connected]);
@@ -138,8 +139,8 @@ function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(avai
   const [available, setAvailable] = useState<boolean | null>(null); const [status, setStatus] = useState(t("正在连接本机 Codex…")); const [records, setRecords] = useState<ManagedConversation[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [codexProjects, setCodexProjects] = useState<Array<{ id: string; name: string }>>([]);
   const recordsByState = useRef<Partial<Record<ConversationState, ManagedConversation[]>>>({});
   const viewStateRef = useRef<ConversationState>("active");
-  // 同上：渲染期写 ref 改为提交后同步，读取方均为异步回调中的过期守卫
-  useEffect(() => { viewStateRef.current = state; }, [state]);
+  // 同上：layout effect 在 commit 阶段同步写入，早于 fetchState 完成回调所在的微任务
+  useLayoutEffect(() => { viewStateRef.current = state; }, [state]);
   const { confirm, dialog } = useConfirm();
   async function fetchState(target: ConversationState, full: boolean, visible: boolean): Promise<void> { const archived = target === "archived"; if (visible) { setLoading(true); setError(""); } try { const all: CodexThread[] = []; let cursor: string | null = null; do { const page = await window.conversationManager.codex.list({ cursor, archived, full }); all.push(...page.data); cursor = page.nextCursor; } while (cursor); const merged = dedupeById(all.map((thread) => toCodexManaged(thread, archived))); recordsByState.current = { ...recordsByState.current, [target]: merged }; onCounts((old) => ({ ...old, [target]: merged.length })); if (visible && viewStateRef.current === target) { setRecords(merged); setNotice(t(full ? "完整校准完成：共 {n} 条任务" : "同步完成：共 {n} 条任务", { n: merged.length })); } void window.conversationManager.logs.info(`codex sync: archived=${archived}, n=${merged.length}`); } catch (cause) { if (visible && viewStateRef.current === target) setError(friendlyError(cause)); } finally { if (visible && viewStateRef.current === target) setLoading(false); } }
   useEffect(() => { void window.conversationManager.codex.status().then((value) => { setAvailable(value.available); setStatus(value.message); onStatus?.(value.available); if (value.available) { void fetchState(state, false, true); void fetchState(state === "archived" ? "active" : "archived", false, false); } }); }, []);

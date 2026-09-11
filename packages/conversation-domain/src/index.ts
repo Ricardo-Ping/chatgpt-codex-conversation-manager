@@ -64,7 +64,10 @@ export function dedupeById<T extends { id: string }>(items: T[]): T[] {
   return [...new Map(items.map((item) => [item.id, item])).values()];
 }
 
-/** 宽松的 x.y(.z.w) 版本号格式校验，与扩展端 background.js 的规则保持一致。 */
+/** 宽松的版本号格式校验：至少一个数字段、最多四段（1 / 1.2 / 1.2.3 / 1.2.3.4）。
+ * 注意两点：① 不接受 "v" 前缀或 "-beta" 后缀——那类归一化属于 mac-updater 的
+ * isNewerVersion 比较逻辑，与本函数无关；② 正则刻意不做末尾锚定（沿用旧内联检查
+ * 的宽容行为，仅用于快速拒绝明显非法的版本串）。 */
 export function isValidVersionFormat(value: unknown): value is string {
   return typeof value === "string" && /^\d+(\.\d+){0,3}/.test(value);
 }
