@@ -292,10 +292,7 @@ function Settings({ version, lang, onLanguage, onCodexStatus }: { version: strin
   const [update, setUpdate] = useState<UpdateState | null>(null); const [bridge, setBridge] = useState<PairingState | null>(null); const [cache, setCache] = useState<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null; lastFullSyncedAt: number | null } | null>(null); const [codexStatus, setCodexStatus] = useState<{ available: boolean; message: string; command: string } | null>(null); const [theme, setTheme] = useState<ThemePreference>("system"); const [pairMessage, setPairMessage] = useState("");
   const extensionDirectory = useExtensionDirectory();
   const [loginItem, setLoginItem] = useState(false);
-  const [codexProjects, setCodexProjects] = useState<Array<{ id: string; name: string }>>([]);
   useEffect(() => { void window.conversationManager.startup.get().then(setLoginItem).catch(() => {}); }, []);
-  useEffect(() => { void window.conversationManager.codex.projects().then((v) => setCodexProjects(v.projects)).catch(() => {}); }, []);
-  const reloadCodexProjects = () => void window.conversationManager.codex.projects().then((v) => setCodexProjects(v.projects)).catch(() => {});
   const readCodexStatus = () => void window.conversationManager.codex.status().then((value) => { setCodexStatus(value); onCodexStatus?.(value.available); });
   useEffect(() => { void window.conversationManager.updates.getState().then(setUpdate); void window.conversationManager.chatgpt.state().then(setBridge); void window.conversationManager.chatgpt.cacheStats().then(setCache); void window.conversationManager.theme.get().then(setTheme); readCodexStatus(); return window.conversationManager.updates.onState(setUpdate); }, []);
   const changeTheme = (value: ThemePreference) => { setTheme(value); void window.conversationManager.theme.set(value); };
