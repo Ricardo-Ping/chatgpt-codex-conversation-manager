@@ -6,10 +6,18 @@ import { t } from "./strings.js";
 
 export interface ViewerMessage { role: string; at: number | null; text: string }
 
+// 清理 Codex 文件引用标记：codex-file-citation{path="..." purpose="..."} → 📄 文件名
+function cleanCodexCitations(text: string): string {
+  return text.replace(/:?codex-file-citation\{path="([^"]*)"[^}]*\}/g, (_, path) => {
+    const fileName = path.split(/[\\/]/).pop() || path;
+    return `📎 ${fileName}`;
+  });
+}
+
 // 生成 wolai 风格的代码块：头部（语言标签 + 复制按钮）与代码主体一体渲染，
 // 语言未知时用 highlight.js 自动检测；复制按钮通过事件委托响应点击
 export function renderMarkdown(text: string): string {
-  const parsed = marked.parse(text ?? "", { async: false, gfm: true, breaks: true });
+  const parsed = marked.parse(cleanCodexCitations(text ?? ""), { async: false, gfm: true, breaks: true });
   const html = DOMPurify.sanitize(typeof parsed === "string" ? parsed : "", { ADD_ATTR: ["target"] });
   const container = document.createElement("div");
   container.innerHTML = html;
