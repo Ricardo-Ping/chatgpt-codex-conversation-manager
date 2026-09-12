@@ -137,10 +137,12 @@ export class ChatGptBridgeServer {
         // 慢同步（完整校准、项目多）不再被固定预算误杀；命令真卡死时心跳停止，窗口到期兜底。
         const body = await readJson<{ protocolVersion?: unknown; requestId?: unknown }>(req);
         if (body.protocolVersion !== 1 || typeof body.requestId !== "string") return json(res, 400, { error: "invalid_progress" });
-        const pending = this.#pending.get(body.requestId);
+        // 提取局部 const：对象属性的类型收窄不会进入 setTimeout 闭包，直接引用 body.requestId 会报 TS2345
+        const requestId = body.requestId;
+        const pending = this.#pending.get(requestId);
         if (pending) {
           clearTimeout(pending.timer);
-          pending.timer = setTimeout(() => { this.#pending.delete(body.requestId); this.#commands = this.#commands.filter((item) => item.requestId !== body.requestId); pending.reject(new Error("Browser bridge request timed out")); }, pending.timeoutMs);
+          pending.timer = setTimeout(() => { this.#pending.delete(requestId); this.#commands = this.#commands.filter((item) => item.requestId !== requestId); pending.reject(new Error("Browser bridge request timed out")); }, pending.timeoutMs);
         }
         return json(res, 204, null);
       }
