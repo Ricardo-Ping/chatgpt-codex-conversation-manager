@@ -284,6 +284,7 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
     codexCount: summary.byPlatform.codex.length
   }), [summary, streakDays, lateNightCount]);
   useEffect(() => {
+    if (typeof window.conversationManager.stats?.badges !== "function") return; // 旧 preload 热更新场景的防御
     const newly = badges.filter((badge) => badge.earned && !awards[badge.id]);
     if (!newly.length) return;
     const earnedAt = new Date().toISOString();
@@ -340,7 +341,7 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
               <strong>{t(meta.name)}</strong>
               <span>{t(meta.description)}</span>
             </div>
-            <span className="badge-progress">{earned ? (earnedAt ? shortDate(earnedAt.slice(0, 10)) : "✓") : `${formatCount(Math.min(badge.current, badge.target))}/${formatCount(badge.target)}`}</span>
+            <span className="badge-progress">{earned ? (earnedAt ? shortDate(dateKey(new Date(earnedAt))) : "✓") : `${formatCount(Math.min(badge.current, badge.target))}/${formatCount(badge.target)}`}</span>
           </div>;
         })}
       </div>
