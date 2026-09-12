@@ -79,6 +79,7 @@ export class ChatGptBridgeServer {
     for (const item of this.#pending.values()) { clearTimeout(item.timer); item.reject(new Error("Bridge closed")); }
     this.#pending.clear();
     this.#commands = [];
+    this.#boundPort = null;
     const server = this.#server; this.#server = null;
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   }
