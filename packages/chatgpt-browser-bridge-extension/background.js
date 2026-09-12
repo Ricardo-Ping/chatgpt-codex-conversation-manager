@@ -106,10 +106,19 @@ async function relayJob(job, secret) {
   let result;
   try {
     if (!Number.isFinite(job?.expiresAt) || job.expiresAt <= Date.now()) throw new Error("桌面命令已过期，未执行 / Desktop command expired");
-    const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
-    const tab = tabs[0];
-    if (!tab?.id) result = { ok: false, error: { code: "NO_CHATGPT_TAB", message: "请先在浏览器打开 ChatGPT / Please open chatgpt.com in your browser first", retryable: true } };
-    else result = await sendToChatGptTab(tab.id, { target: "conversation-manager-content", ...job });
+    const tabs = await findChatGptTabs({ url: CHATGPT_TAB_PATTERNS });
+    // 优先最近使用的标签页；被 Chrome 冻结/休眠的旧标签页可能永远不应答，最多尝试两个后快速失败
+    const ordered = tabs.slice().sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0)).slice(0, 2);
+    if (!ordered.length) {
+      result = { ok: false, error: { code: "NO_CHATGPT_TAB", message: "请先在浏览器打开 ChatGPT / Please open chatgpt.com in your browser first", retryable: true } };
+    } else {
+      let lastError = null;
+      for (const tab of ordered) {
+        try { result = await sendToChatGptTab(tab.id, { target: "conversation-manager-content", ...job }); break; }
+        catch (error) { lastError = error; }
+      }
+      if (result === null) result = { ok: false, error: { code: "CHATGPT_TAB_UNRESPONSIVE", message: (lastError && lastError.message) || "ChatGPT 页面长时间无响应，请刷新 ChatGPT 标签页后重试 / The ChatGPT tab is not responding — refresh it and retry", retryable: true } };
+    }
   } catch (error) { result = { ok: false, error: { code: "INTERNAL_ERROR", message: error.message || String(error), retryable: true } }; }
   try { await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: job.requestId, ...result }) }); } catch {} finally { endKeepAlive(); }
 }
@@ -123,15 +132,24 @@ function enqueueRelay(job, secret) {
   if (FAST_COMMANDS.has(job?.type)) fastQueue = fastQueue.then(() => relayJob(job, secret)).catch(() => {});
   else relayQueue = relayQueue.then(() => relayJob(job, secret)).catch(() => {});
 }
+// 单次页面消息限时 60 秒：被 Chrome 冻结/休眠的标签页可能永远不应答，
+// 无超时会卡死转发队列，让桌面端每次读取都等满整个超时预算
+const TAB_RESPONSE_TIMEOUT_MS = 60_000;
+function sendWithTimeout(tabId, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("ChatGPT 页面 60 秒无响应（可能已被 Chrome 冻结），请刷新该标签页后重试 / The ChatGPT tab is frozen — refresh it and retry")), TAB_RESPONSE_TIMEOUT_MS);
+    chrome.tabs.sendMessage(tabId, message).then((response) => { clearTimeout(timer); resolve(response); }, (error) => { clearTimeout(timer); reject(error); });
+  });
+}
 async function sendToChatGptTab(tabId, message) {
   let lastError = null;
-  try { return await chrome.tabs.sendMessage(tabId, message); }
+  try { return await sendWithTimeout(tabId, message); }
   catch (error) {
     if (!/receiving end does not exist|could not establish connection/i.test(error?.message || String(error))) throw error;
     await chrome.scripting.executeScript({ target: { tabId }, files: ["bridge-core.js", "content.js"] });
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await wait(300 * (attempt + 1));
-      try { return await chrome.tabs.sendMessage(tabId, message); } catch (retryError) {
+      try { return await sendWithTimeout(tabId, message); } catch (retryError) {
         lastError = retryError;
         if (attempt === 2 || !/receiving end does not exist|could not establish connection/i.test(retryError?.message || String(retryError))) throw retryError;
       }
