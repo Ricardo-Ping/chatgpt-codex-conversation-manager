@@ -276,8 +276,8 @@ button { cursor: pointer; }
   .list-head, .row { grid-template-columns: 38px minmax(220px, 1fr) 90px; }
 }
 
-/* 统计洞察页 */
-.stats-page { display: grid; gap: 16px; }
+/* 统计洞察页：与 workspace/settings 同款容器约束——自身滚动、居中限宽、留出边界 */
+.stats-page { flex: 1; min-height: 0; overflow-y: auto; display: grid; gap: 16px; align-content: start; padding: 24px 28px 44px; width: 100%; max-width: 1700px; margin: 0 auto; }
 .stats-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .stats-head h1 { font-size: 26px; margin: 0 0 5px; color: var(--heading); }
 .stats-scope { margin: 0; color: var(--text-muted); font-size: 13px; }
