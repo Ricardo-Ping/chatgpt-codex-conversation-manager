@@ -341,7 +341,7 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
               <strong>{t(meta.name)}</strong>
               <span>{t(meta.description)}</span>
             </div>
-            <span className="badge-progress">{earned ? (earnedAt ? shortDate(dateKey(new Date(earnedAt))) : "✓") : `${formatCount(Math.min(badge.current, badge.target))}/${formatCount(badge.target)}`}</span>
+            <span className="badge-progress">{earned ? (earnedAt ? shortDate(dateKey(new Date(earnedAt).getTime())) : "✓") : `${formatCount(Math.min(badge.current, badge.target))}/${formatCount(badge.target)}`}</span>
           </div>;
         })}
       </div>
