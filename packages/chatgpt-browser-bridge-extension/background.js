@@ -34,9 +34,12 @@ function beginKeepAlive() {
   if (keepAliveTimer) return;
   keepAliveTimer = setInterval(() => { void chrome.runtime.getPlatformInfo(); }, 20_000);
 }
+let pendingSelfReloadTarget = null;
 function endKeepAlive() {
   inFlightCommands = Math.max(0, inFlightCommands - 1);
   if (inFlightCommands === 0 && keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null; }
+  // 忙时被推迟的自动重载：命令队列清空后立即补上，绝不让"正在执行命令"跳过升级
+  if (inFlightCommands === 0 && pendingSelfReloadTarget) { const target = pendingSelfReloadTarget; pendingSelfReloadTarget = null; void requestSelfReload(target); }
 }
 
 chrome.runtime.onInstalled.addListener(() => { chrome.alarms.create("conversation-manager-poll", { periodInMinutes: 0.5 }); void startPolling(); });
@@ -91,17 +94,23 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 // 桌面端更新后会在响应头里带期望的扩展版本；扩展发现自己落后且磁盘文件已是新版时，自我 reload 完成升级
+async function requestSelfReload(target) {
+  try {
+    const stored = await chrome.storage.local.get("lastSelfReloadTarget");
+    if (stored.lastSelfReloadTarget === target) return;
+    await chrome.storage.local.set({ lastSelfReloadTarget: target });
+    chrome.runtime.reload();
+  } catch {}
+}
 async function maybeSelfReload(response) {
   try {
     const target = response.headers.get("x-expected-extension-version");
     if (!target) return;
     const running = chrome.runtime.getManifest().version;
     if (!isNewerVersion(target, running)) return;
-    if (inFlightCommands > 0) return;
-    const stored = await chrome.storage.local.get("lastSelfReloadTarget");
-    if (stored.lastSelfReloadTarget === target) return;
-    await chrome.storage.local.set({ lastSelfReloadTarget: target });
-    chrome.runtime.reload();
+    // 正在执行命令时不打断当前任务：记下目标，命令队列清空后立即补上（endKeepAlive）
+    if (inFlightCommands > 0) { pendingSelfReloadTarget = target; return; }
+    void requestSelfReload(target);
   } catch {}
 }
 async function startPolling() {
@@ -151,17 +160,27 @@ async function relayJob(job, secret) {
       if (result === null) result = { ok: false, error: { code: "CHATGPT_TAB_UNRESPONSIVE", message: (lastError && lastError.message) || "ChatGPT 页面长时间无响应，请刷新 ChatGPT 标签页后重试 / The ChatGPT tab is not responding — refresh it and retry", retryable: true } };
     }
   } catch (error) { result = { ok: false, error: { code: "INTERNAL_ERROR", message: error.message || String(error), retryable: true } }; }
-  try { await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: job.requestId, ...result }) }); } catch {} finally { endKeepAlive(); }
+  try { await reportResult(job, secret, result); } finally { endKeepAlive(); }
 }
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let relayQueue = Promise.resolve();
 let fastQueue = Promise.resolve();
-const FAST_COMMANDS = new Set(["batch", "cancel", "status", "projects", "read"]);
+// 批量变更并入慢队列：写操作与长同步错峰，避免在同一 ChatGPT 页面并发争用触发 429；
+// cancel/status/projects/read 保持快速通道（cancel 必须能及时取消，read 单发无并发压力）
+const FAST_COMMANDS = new Set(["cancel", "status", "projects", "read"]);
 function enqueueRelay(job, secret) {
-  // 同步与导出等慢速读命令串行转发，避免在 ChatGPT 端并发竞争导致超时；
-  // 批量变更/取消等短命令走快速通道立即执行，防止排在长同步后面排队超时
+  // 入队前先判过期：轮到时早已失效的命令不进队列，立即回报桌面端快速失败——
+  // 否则它会占住串行队列位置，桌面端还要再等满整个超时预算才报错
+  if (!Number.isFinite(job?.expiresAt) || job.expiresAt <= Date.now()) {
+    void reportResult(job, secret, { ok: false, error: { code: "COMMAND_EXPIRED", message: "桌面命令已过期，未执行 / Desktop command expired", retryable: true } });
+    return;
+  }
+  // 同步与导出等慢速读命令串行转发，避免在 ChatGPT 端并发竞争导致超时
   if (FAST_COMMANDS.has(job?.type)) fastQueue = fastQueue.then(() => relayJob(job, secret)).catch(() => {});
   else relayQueue = relayQueue.then(() => relayJob(job, secret)).catch(() => {});
+}
+async function reportResult(job, secret, result) {
+  try { await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: job.requestId, ...result }) }); } catch {}
 }
 // 单次页面消息限时 60 秒：被 Chrome 冻结/休眠的标签页可能永远不应答，
 // 无超时会卡死转发队列，让桌面端每次读取都等满整个超时预算

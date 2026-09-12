@@ -20,6 +20,7 @@ interface MainStrings {
   noDirectory: string;
   noItems: string;
   readConversationFailed: string;
+  staleExtension: string;
   windowUnavailable: string;
   trayShow: string;
   trayQuickSearch: string;
@@ -71,6 +72,7 @@ const zh: MainStrings = {
   noDirectory: "未选择保存目录",
   noItems: "未选择要保存的会话",
   readConversationFailed: "读取会话失败",
+  staleExtension: "扩展代码已过期——请在 chrome://extensions 中点击“重新加载”后重试",
   windowUnavailable: "Window unavailable",
   trayShow: "打开主窗口",
   trayQuickSearch: "快速搜索",
@@ -122,6 +124,7 @@ const en: MainStrings = {
   noDirectory: "No save folder selected",
   noItems: "No conversations selected",
   readConversationFailed: "Failed to read conversation",
+  staleExtension: "Extension code is outdated — reload it in chrome://extensions and retry",
   windowUnavailable: "Window unavailable",
   trayShow: "Show main window",
   trayQuickSearch: "Quick search",

@@ -415,9 +415,9 @@ async function updateExtensionReloadHint(): Promise<void> {
 // 桥接命令统一入口：超时且扩展明明在线时，诊断扩展是否是"无法自动升级的旧代码"，
 // 把笼统的同步超时换成明确的重载指引。连接着却等满整个预算都没有结果，
 // 在新版扩展的层层限时下几乎只会发生在缺少防护的旧 SW 上。
-const STALE_EXTENSION_MESSAGE = "Extension code is outdated — reload it in chrome://extensions and retry";
 async function bridgeRequest(type: BridgeCommandType, payload: unknown, timeoutMs?: number): Promise<BridgeResult> {
-  try { return await (timeoutMs === undefined ? bridge.request(type, payload) : bridge.request(type, payload, timeoutMs)); }
+  const attempt = (): Promise<BridgeResult> => (timeoutMs === undefined ? bridge.request(type, payload) : bridge.request(type, payload, timeoutMs));
+  try { return await attempt(); }
   catch (error) {
     const text = error instanceof Error ? error.message : String(error);
     if (!/timed out/i.test(text) || !bridge.state().connected) throw error;
@@ -429,7 +429,11 @@ async function bridgeRequest(type: BridgeCommandType, payload: unknown, timeoutM
     });
     if (!shouldDemandReload(staleness)) throw error;
     logWarn(`bridge ${type} timed out while connected; extension staleness=${staleness}, reported=${bridge.reportedVersion() || "?"}, hash=${bridge.reportedCodeHash() ? bridge.reportedCodeHash()!.slice(0, 8) : "none"}`);
-    throw new Error(STALE_EXTENSION_MESSAGE, { cause: error });
+    // 扩展可能正处于自愈/reload 窗口（SW 重启后恢复轮询需要几秒）：等待一次再重发命令，
+    // 让重载后的新代码有机会完成本请求，而不是把超时立即甩给用户；仍失败才提示重载
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    try { return await attempt(); } catch {}
+    throw new Error(M().staleExtension, { cause: error });
   }
 }
 function extensionDirectory(): string { return extensionDirOverride ?? bundledExtensionDirectory(); }

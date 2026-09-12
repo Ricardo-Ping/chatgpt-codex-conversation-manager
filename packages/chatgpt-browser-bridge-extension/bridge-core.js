@@ -8,6 +8,11 @@
   const NON_SCHEDULED_TASK = /pro[_ -]?mode|deep[_ -]?research|image[_ -]?(?:generation|gen)|imagegen|dall[ -]?e/i;
   const PAGE_SIZE = 50; // ChatGPT 后端限制分页大小上限为 50
   const PROJECT_FETCH_CONCURRENCY = 6;
+  // 增量模式下翻页深度封顶：单条 list 命令的耗时必须可控，避免项目多/网络慢时
+  // 把命令拖过桌面端超时预算（慢队列被占死 → 后续命令排队过期）。
+  // 2 分钟增量间隔内新增超过 5×50=250 条属极端情况，即使发生，下一轮增量会继续补齐；
+  // 完整校准（full）不受此限制，仍全量翻页。
+  const MAX_INCREMENTAL_PAGES = 5;
 
   async function mapLimit(items, limit, worker) {
     let cursor = 0;
@@ -116,26 +121,32 @@
       return [...entries].map(([id, name]) => ({ id, name: name || id }));
     }
     async loadConversations(accountId, archived, signal, checkpoint) {
-      const records = []; let offset = 0;
+      const records = []; let offset = 0, pages = 0;
       for (;;) {
         const response = await this.request(`/backend-api/conversations?offset=${offset}&limit=${PAGE_SIZE}&order=updated&is_archived=${archived}`, accountId, { signal });
         const rows = Array.isArray(response?.items) ? response.items : null;
         if (!rows) throw new BridgeError("INCOMPATIBLE_API", "会话接口结构已变化");
         const page = rows.map((row) => normalize(row, archived ? "archived" : "active")).filter(Boolean); records.push(...page);
+        pages += 1;
         if (checkpoint && page.length && page.every((row) => (row.updatedAt || 0) <= checkpoint)) break;
+        if (checkpoint && pages >= MAX_INCREMENTAL_PAGES) break;
         if (rows.length < PAGE_SIZE) break; offset += rows.length;
       }
       if (!archived) {
         const discovered = await this.loadProjectEntries(accountId, signal, Boolean(checkpoint));
         await mapLimit([...discovered.keys()], PROJECT_FETCH_CONCURRENCY, async (projectId) => {
-          let projectCursor = 0;
+          let projectCursor = 0, projectPages = 0;
           for (;;) {
             const query = new URLSearchParams({ cursor: String(projectCursor), limit: String(PAGE_SIZE), owned_only: "true" });
             const payload = await this.request(`/backend-api/gizmos/${encodeURIComponent(projectId)}/conversations?${query}`, accountId, { signal });
             const rows = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload?.conversations) ? payload.conversations : null;
             if (!rows) throw new BridgeError("INCOMPATIBLE_API", "项目会话接口结构已变化");
             const page = rows.filter((row) => Boolean(row?.is_archived) === archived).map((row) => normalize(row, archived ? "archived" : "active", { projectId })).filter(Boolean); records.push(...page);
-            if (checkpoint && page.length && page.every((row) => (row.updatedAt || 0) <= checkpoint)) break;
+            projectPages += 1;
+            // 仅第一页用 checkpoint 判断"整个项目没有新会话"（省请求）；项目接口不保证按 updatedAt
+            // 降序返回，一旦第一页出现新会话就全量翻完该项目，不再中途 break，避免漏掉较新的项目会话
+            if (projectPages === 1 && checkpoint && page.length && page.every((row) => (row.updatedAt || 0) <= checkpoint)) break;
+            if (checkpoint && projectPages >= MAX_INCREMENTAL_PAGES) break;
             const next = payload?.cursor ?? payload?.next_cursor ?? payload?.nextCursor;
             if (next !== undefined && next !== null && String(next) !== String(projectCursor)) { projectCursor = next; continue; }
             if (payload?.has_more === true && rows.length) { projectCursor = Number(projectCursor) + rows.length; continue; }
