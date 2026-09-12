@@ -33,7 +33,9 @@ function isInsideCodexHome(src: string): boolean {
 // 语言未知时用 highlight.js 自动检测；复制按钮通过事件委托响应点击
 export function renderMarkdown(text: string): string {
   const parsed = marked.parse(cleanCodexCitations(text ?? ""), { async: false, gfm: true, breaks: true });
-  const html = DOMPurify.sanitize(typeof parsed === "string" ? parsed : "", { ADD_ATTR: ["target"] });
+  // ADD_URI_SAFE_ATTR: 让本地路径的 img src 穿过 sanitize（默认 URI 白名单会剥掉
+  // file:/盘符路径，导致本地图片永远无法显示）；随后由 whitelisted 转换决定哪些可加载
+  const html = DOMPurify.sanitize(typeof parsed === "string" ? parsed : "", { ADD_ATTR: ["target"], ADD_URI_SAFE_ATTR: ["src"] });
   const container = document.createElement("div");
   container.innerHTML = html;
   container.querySelectorAll("pre").forEach((pre) => {

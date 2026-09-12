@@ -35,9 +35,10 @@ for (const file of manifests) {
 const manifest = "packages/chatgpt-browser-bridge-extension/manifest.json";
 fs.writeFileSync(manifest, fs.readFileSync(manifest, "utf8").replace(`"version": "${previous}"`, `"version": "${next}"`));
 
-// MCP server 常量
-const mcpIndex = "companion-plugin/mcp/src/index.ts";
-fs.writeFileSync(mcpIndex, fs.readFileSync(mcpIndex, "utf8").replaceAll(previous, next));
+// MCP server 与 Codex 适配器里的版本常量
+for (const textFile of ["companion-plugin/mcp/src/index.ts", "packages/codex-app-server-adapter/src/index.ts"]) {
+  fs.writeFileSync(textFile, fs.readFileSync(textFile, "utf8").replaceAll(previous, next));
+}
 
 // README 下载链接与支持说明
 for (const readme of ["README.md", "README.en.md"]) {
@@ -45,5 +46,5 @@ for (const readme of ["README.md", "README.en.md"]) {
 }
 
 console.log(`bumped ${previous} -> ${next}:`);
-for (const file of [...manifests, manifest, mcpIndex, "README.md", "README.en.md"]) console.log(`  ${file}`);
+for (const file of [...manifests, manifest, "companion-plugin/mcp/src/index.ts", "packages/codex-app-server-adapter/src/index.ts", "README.md", "README.en.md"]) console.log(`  ${file}`);
 console.log("\nnext: commit, tag vX.Y.Z and push the tag to trigger the release workflow");
