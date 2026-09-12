@@ -5,12 +5,13 @@ import { homedir } from "node:os";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BRIDGE_PORT, ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from "@conversation-manager/chatgpt-bridge-server";
+import { BRIDGE_PORT, ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode, type BridgeCommandType, type BridgeResult } from "@conversation-manager/chatgpt-bridge-server";
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { isValidVersionFormat } from "@conversation-manager/conversation-domain";
 import { discoverCodexCommands } from "./codex-discovery.js";
 import { syncExtensionFiles } from "./extension-sync.js";
 import { healLoadedExtensionFolders } from "./extension-heal.js";
+import { extensionCodeHash, classifyExtensionStaleness, shouldDemandReload } from "./extension-integrity.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, isNewerVersion, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
@@ -132,16 +133,16 @@ async function connectCodex(): Promise<boolean> {
 }
 ipcMain.handle("app:version", (event) => { requireRenderer(event); return app.getVersion(); });
 ipcMain.handle("external:open", async (event, value) => { requireRenderer(event); if (value !== CHATGPT_URL && value !== RELEASE_URL && value !== "https://developers.openai.com/codex/app-server") throw new Error("URL not allowed"); await shell.openExternal(value); });
-ipcMain.handle("chatgpt:state", (event) => { requireRenderer(event); updateExtensionReloadHint(); return bridge.state(); });
+ipcMain.handle("chatgpt:state", async (event) => { requireRenderer(event); await updateExtensionReloadHint(); return bridge.state(); });
 ipcMain.handle("chatgpt:clear-pairing", async (event) => { requireRenderer(event); await bridge.clearPairing(); return bridge.state(); });
 ipcMain.handle("chatgpt:open", async (event) => { requireRenderer(event); await shell.openExternal(CHATGPT_URL); });
 ipcMain.handle("chatgpt:open-conversation", async (event, value) => { requireRenderer(event); await shell.openExternal(`${CHATGPT_URL}c/${requireId(value)}`); });
 ipcMain.handle("chatgpt:show-extension", (event) => { requireRenderer(event); const directory = extensionDirectory(); shell.showItemInFolder(join(directory, "manifest.json")); return directory; });
 ipcMain.handle("chatgpt:extension-directory", (event) => { requireRenderer(event); return extensionDirectory(); });
-ipcMain.handle("chatgpt:accounts", async (event) => { requireRenderer(event); const result = await bridge.request("accounts", {}); if (!result.ok) throw new Error(result.error?.message || M().accountReadFailed); return sanitizeAccounts(result.payload); });
+ipcMain.handle("chatgpt:accounts", async (event) => { requireRenderer(event); const result = await bridgeRequest("accounts", {}); if (!result.ok) throw new Error(result.error?.message || M().accountReadFailed); return sanitizeAccounts(result.payload); });
 ipcMain.handle("chatgpt:projects", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey);
-  const result = await bridge.request("projects", { accountKey }, BRIDGE_TIMEOUT_PROJECTS_MS); if (!result.ok) throw new Error(result.error?.message || M().accountReadFailed);
+  const result = await bridgeRequest("projects", { accountKey }, BRIDGE_TIMEOUT_PROJECTS_MS); if (!result.ok) throw new Error(result.error?.message || M().accountReadFailed);
   const payload = result.payload as { projects?: unknown }; const rows = Array.isArray(payload?.projects) ? payload.projects : [];
   return { projects: rows.slice(0, 300).map((row) => { const item = row && typeof row === "object" ? row as Record<string, unknown> : {}; if (typeof item.id !== "string" || !item.id.startsWith("g-p-") || item.id.length > 128) return null; const name = typeof item.name === "string" && item.name.trim() ? item.name.trim().slice(0, 100) : item.id; return { id: item.id, name }; }).filter((row): row is { id: string; name: string } => Boolean(row)) };
 });
@@ -149,7 +150,7 @@ ipcMain.handle("chatgpt:cached-accounts", (event) => { requireRenderer(event); r
 ipcMain.handle("chatgpt:cache", (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return indexStore.read(requireAccount(input.accountKey), requireState(input.state)); });
 ipcMain.handle("chatgpt:list", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const state = requireState(input.state); const label = typeof input.label === "string" ? input.label.slice(0, 100) : "ChatGPT"; const cached = indexStore.read(accountKey, state); const mode = chooseCacheSyncMode(cached, input.full === true);
-  const result = await bridge.request("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().syncFailed);
+  const result = await bridgeRequest("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().syncFailed);
   const payload = result.payload as { records?: unknown; full?: boolean; projects?: unknown }; const records = sanitizeRecords(payload.records, state); const projects = sanitizeProjects(payload.projects); const calibrated = mode === "full" || payload.full === true; if (calibrated) await indexStore.replace(accountKey, label, state, records, true, projects); else await indexStore.merge(accountKey, label, state, records, projects); const snapshot = indexStore.read(accountKey, state); return snapshot ? { ...snapshot, syncMode: calibrated ? "full" : "incremental" } : null;
 });
 ipcMain.handle("chatgpt:preview-delete", (event, value) => { requireRenderer(event); const ids = requireIds(value); return { confirmationToken: rememberConfirmation("chatgpt", ids) }; });
@@ -160,7 +161,7 @@ ipcMain.handle("chatgpt:batch", async (event, value) => {
     if (action === "add-to-project" && !projectId) throw new Error(M().projectMissing);
     const operationId = randomUUID(); currentChatBatchId = operationId;
     activeBatchCount += 1;
-    try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId, ...(projectId ? { projectId } : {}) }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.applyProjectMove(accountKey, succeeded, action === "add-to-project" ? projectId : null); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
+    try { const result = await bridgeRequest("batch", { accountKey, action, ids, requestId: operationId, ...(projectId ? { projectId } : {}) }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.applyProjectMove(accountKey, succeeded, action === "add-to-project" ? projectId : null); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
   }
   return runChatGptBatch(accountKey, action, ids);
 });
@@ -168,9 +169,9 @@ ipcMain.handle("chatgpt:batch", async (event, value) => {
 async function runChatGptBatch(accountKey: string, action: "archive" | "restore" | "delete", ids: string[]): Promise<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed: string[] }> {
   const operationId = randomUUID(); currentChatBatchId = operationId;
   activeBatchCount += 1;
-  try { const result = await bridge.request("batch", { accountKey, action, ids, requestId: operationId }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
+  try { const result = await bridgeRequest("batch", { accountKey, action, ids, requestId: operationId }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().batchFailed); const payload = result.payload as { succeeded?: string[]; failed?: Array<{ id: string; message: string }>; unprocessed?: string[] }; const succeeded = Array.isArray(payload.succeeded) ? payload.succeeded.map(requireId) : []; await indexStore.apply(accountKey, action, succeeded); return { succeeded, failed: Array.isArray(payload.failed) ? payload.failed : [], unprocessed: Array.isArray(payload.unprocessed) ? payload.unprocessed : [] }; } finally { activeBatchCount -= 1; if (currentChatBatchId === operationId) currentChatBatchId = null; }
 }
-ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridge.request("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
+ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridgeRequest("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
 ipcMain.handle("chatgpt:export", async (event, value) => {
@@ -193,7 +194,7 @@ async function exportChatGptSessions(accountKey: string, directory: string, item
       const item = items[cursor++];
       if (!item) break;
       try {
-        const result = await bridge.request("read", { accountKey, id: item.id }, BRIDGE_TIMEOUT_LONG_MS);
+        const result = await bridgeRequest("read", { accountKey, id: item.id }, BRIDGE_TIMEOUT_LONG_MS);
         if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
         const payload = result.payload as { title?: unknown; messages?: unknown };
         const rawMessages = Array.isArray(payload.messages) ? payload.messages : [];
@@ -311,7 +312,7 @@ async function readConversationShared(accountKey: string, id: string): Promise<{
   const cacheKey = `${accountKey}:${id}`;
   const cached = readConversationCache.get(cacheKey);
   if (cached && Date.now() - cached.at < READ_CACHE_TTL_MS) { cached.at = Date.now(); readConversationCache.delete(cacheKey); readConversationCache.set(cacheKey, cached); return cached.data; }
-  const result = await bridge.request("read", { accountKey, id }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
+  const result = await bridgeRequest("read", { accountKey, id }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().readConversationFailed);
   const payload = result.payload as { title?: unknown; messages?: unknown };
   const rows = Array.isArray(payload?.messages) ? payload.messages : [];
   const messages = rows.map((row) => { const item = row && typeof row === "object" ? row as Record<string, unknown> : {}; return { role: typeof item.role === "string" ? item.role.slice(0, 32) : "other", at: typeof item.at === "number" ? item.at : null, text: typeof item.text === "string" ? item.text.slice(0, 500_000) : "" }; }).filter((item) => item.text.trim().length > 0);
@@ -384,18 +385,52 @@ function bundledExtensionDirectory(): string { return app.isPackaged ? join(proc
 // 这样扩展的自动重载总能读到新文件，用户只需在 Chrome 里加载一次
 let extensionDirOverride: string | null = null;
 let expectedExtensionVersion: string | null = null;
-// 扩展硬重载提示的状态：同一上报版本最多提示 2 次（磁盘文件也旧时停止，避免重载风暴），
-// 上报版本变化则重新计数
+// 扩展硬重载提示的状态：同一上报身份（版本+代码指纹）最多提示 2 次（避免重载风暴），
+// 上报身份变化则重新计数
 const reloadHintState = { reported: "", count: 0 };
-function updateExtensionReloadHint(): void {
+let cachedDiskHash: { hash: string | null; at: number } | null = null;
+async function diskExtensionCodeHash(): Promise<string | null> {
+  // 短 TTL 缓存：每次状态轮询都会用到，避免频繁读盘；TTL 足够短，自愈覆写后很快生效
+  if (cachedDiskHash && Date.now() - cachedDiskHash.at < 5_000) return cachedDiskHash.hash;
+  const hash = await extensionCodeHash(extensionDirectory());
+  cachedDiskHash = { hash, at: Date.now() };
+  return hash;
+}
+async function updateExtensionReloadHint(): Promise<void> {
   const reported = bridge.reportedVersion();
-  if (!expectedExtensionVersion || !reported || !isNewerVersion(expectedExtensionVersion, reported)) {
-    reloadHintState.count = 0; bridge.setReloadHint(false); return;
-  }
-  if (reloadHintState.reported !== reported) { reloadHintState.reported = reported; reloadHintState.count = 0; }
+  const reportedHash = bridge.reportedCodeHash();
+  const diskHash = await diskExtensionCodeHash();
+  // 版本落后（常规路径）或代码指纹漂移（同版本号文件被自愈覆写但 SW 未重启）都值得硬重载；
+  // 指纹判断不依赖版本号，恰好覆盖版本比对发现不了的内容更新
+  const versionBehind = Boolean(expectedExtensionVersion && reported && isNewerVersion(expectedExtensionVersion, reported));
+  const codeDrift = Boolean(diskHash && reportedHash && reportedHash !== "hash-unavailable" && diskHash !== reportedHash);
+  if (!versionBehind && !codeDrift) { reloadHintState.count = 0; bridge.setReloadHint(false); return; }
+  const identity = `${reported || ""}|${reportedHash || ""}`;
+  if (reloadHintState.reported !== identity) { reloadHintState.reported = identity; reloadHintState.count = 0; }
   if (reloadHintState.count >= 2) { bridge.setReloadHint(false); return; }
   reloadHintState.count += 1;
+  logWarn(`extension reload hint #${reloadHintState.count}: versionBehind=${versionBehind}, codeDrift=${codeDrift}, reported=${reported || "?"}, hash=${reportedHash ? reportedHash.slice(0, 8) : "none"} vs disk=${diskHash ? diskHash.slice(0, 8) : "unknown"}`);
   bridge.setReloadHint(true);
+}
+// 桥接命令统一入口：超时且扩展明明在线时，诊断扩展是否是"无法自动升级的旧代码"，
+// 把笼统的同步超时换成明确的重载指引。连接着却等满整个预算都没有结果，
+// 在新版扩展的层层限时下几乎只会发生在缺少防护的旧 SW 上。
+const STALE_EXTENSION_MESSAGE = "Extension code is outdated — reload it in chrome://extensions and retry";
+async function bridgeRequest(type: BridgeCommandType, payload: unknown, timeoutMs?: number): Promise<BridgeResult> {
+  try { return await (timeoutMs === undefined ? bridge.request(type, payload) : bridge.request(type, payload, timeoutMs)); }
+  catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    if (!/timed out/i.test(text) || !bridge.state().connected) throw error;
+    const staleness = classifyExtensionStaleness({
+      expectedVersion: expectedExtensionVersion,
+      reportedVersion: bridge.reportedVersion(),
+      reportedCodeHash: bridge.reportedCodeHash(),
+      expectedCodeHash: await diskExtensionCodeHash(),
+    });
+    if (!shouldDemandReload(staleness)) throw error;
+    logWarn(`bridge ${type} timed out while connected; extension staleness=${staleness}, reported=${bridge.reportedVersion() || "?"}, hash=${bridge.reportedCodeHash() ? bridge.reportedCodeHash()!.slice(0, 8) : "none"}`);
+    throw new Error(STALE_EXTENSION_MESSAGE, { cause: error });
+  }
 }
 function extensionDirectory(): string { return extensionDirOverride ?? bundledExtensionDirectory(); }
 

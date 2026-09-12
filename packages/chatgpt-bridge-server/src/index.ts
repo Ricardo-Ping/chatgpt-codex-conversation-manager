@@ -25,6 +25,7 @@ export class ChatGptBridgeServer {
   #pending = new Map<string, Pending>();
   #lastSeen = 0;
   #extensionVersion: string | null = null;
+  #extensionCodeHash: string | null = null;
   #expectedExtensionVersion: string | null = null;
   #localHandler: ((type: string, payload: unknown) => Promise<unknown>) | null = null;
   #onSecretChange: ((secret: string | null) => void) | null = null;
@@ -37,6 +38,11 @@ export class ChatGptBridgeServer {
 
   // 扩展轮询时上报的自身版本（可能因 SW 长期存活而落后于磁盘文件）
   reportedVersion(): string | null { return this.#extensionVersion; }
+
+  // 扩展轮询时上报的启动代码指纹（启动时磁盘内容的哈希）。桌面端与当前磁盘指纹比对，
+  // 即可发现"磁盘已更新但 SW 未重启"的同版本号内容漂移——版本号比对发现不了这种情况。
+  // 缺失表示 SW 旧到没有该功能；HASH_UNAVAILABLE 表示上报过但计算失败，两者语义不同。
+  reportedCodeHash(): string | null { return this.#extensionCodeHash; }
 
   // 要求扩展硬重载（绕过其内部的忙碌/重载守卫）：桌面端检测到运行版本落后于
   // 磁盘文件、且常规 reload 通道一直没生效时启用
@@ -112,6 +118,8 @@ export class ChatGptBridgeServer {
       this.#lastSeen = Date.now();
       const reported = req.headers["x-extension-version"];
       if (typeof reported === "string" && /^[0-9.]{1,20}$/.test(reported)) this.#extensionVersion = reported;
+      const reportedHash = req.headers["x-extension-code-hash"];
+      if (typeof reportedHash === "string" && /^[A-Za-z0-9_-]{11,128}$/.test(reportedHash)) this.#extensionCodeHash = reportedHash;
       if (req.method === "GET" && (req.url === "/v1/commands" || req.url?.startsWith("/v1/commands?"))) {
         const waitSeconds = Number(new URLSearchParams(req.url?.split("?")[1] ?? "").get("wait") ?? 0);
         if (!this.#commands.length && Number.isFinite(waitSeconds) && waitSeconds > 0) {

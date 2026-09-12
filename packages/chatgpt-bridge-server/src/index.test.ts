@@ -115,6 +115,25 @@ describe("ChatGptBridgeServer", () => {
     const cleared = await fetch(url, { headers });
     expect(cleared.headers.get("x-reload-extension")).toBeNull();
   });
+
+  it("remembers the extension's reported startup code hash from the poll", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-hash-")); const port = 39000 + Math.floor(Math.random() * 500);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const secret = await pairAutomatically(server, port);
+    expect(server.reportedCodeHash()).toBeNull();
+
+    const hash = "Ab12Cd34Ef56Gh78Ij00KlMnOpQrStUvWxYz-abc_-12";
+    await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": hash } });
+    expect(server.reportedCodeHash()).toBe(hash);
+
+    // 指纹计算失败的占位值也要原样透传，桌面端据此区分"旧到没有该功能"与"计算失败"
+    await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": "hash-unavailable" } });
+    expect(server.reportedCodeHash()).toBe("hash-unavailable");
+
+    // 非法格式不得覆盖上次的有效值
+    await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": "not a hash!" } });
+    expect(server.reportedCodeHash()).toBe("hash-unavailable");
+  });
 });
 
 describe("ConversationIndexStore", () => {

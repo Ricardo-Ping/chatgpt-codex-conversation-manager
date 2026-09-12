@@ -31,7 +31,7 @@ export default tseslint.config(
         chrome: "readonly", document: "readonly", navigator: "readonly", location: "readonly", window: "readonly",
         fetch: "readonly", Response: "readonly", Request: "readonly", Headers: "readonly", URL: "readonly", URLSearchParams: "readonly",
         AbortController: "readonly", setTimeout: "readonly", clearTimeout: "readonly", setInterval: "readonly", clearInterval: "readonly",
-        console: "readonly", crypto: "readonly", TextEncoder: "readonly", module: "readonly", require: "readonly", globalThis: "readonly"
+        console: "readonly", crypto: "readonly", TextEncoder: "readonly", btoa: "readonly", module: "readonly", require: "readonly", globalThis: "readonly"
       }
     }
   },

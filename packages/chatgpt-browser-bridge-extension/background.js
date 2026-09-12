@@ -4,6 +4,30 @@ let polling = false;
 let keepAliveTimer = null;
 let inFlightCommands = 0;
 
+const CODE_FILES = ["background.js", "bridge-core.js", "content.js"];
+let codeHashPromise = null;
+// 启动代码指纹：SW 启动即从磁盘加载这三个文件，进程生命周期内只算一次。
+// 桌面端把它与"当前磁盘内容"的指纹比对，可发现版本号没变但文件已被自愈覆写的情况
+//（旧 SW 跑着旧代码、版本号却相同——纯版本比对永远发现不了）。
+function extensionCodeHash() {
+  if (!codeHashPromise) {
+    codeHashPromise = (async () => {
+      try {
+        const digests = [];
+        for (const name of CODE_FILES) {
+          const response = await fetch(chrome.runtime.getURL(name));
+          if (!response.ok) return "hash-unavailable";
+          digests.push(new Uint8Array(await crypto.subtle.digest("SHA-256", await response.arrayBuffer())));
+        }
+        const combined = new Uint8Array(digests.length * 32);
+        digests.forEach((digest, index) => combined.set(digest, index * 32));
+        return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", combined)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      } catch { return "hash-unavailable"; }
+    })();
+  }
+  return codeHashPromise;
+}
+
 // MV3 会在空闲约 30 秒后休眠 Service Worker；长命令执行期间通过定期调用扩展 API 重置空闲计时器
 function beginKeepAlive() {
   inFlightCommands += 1;
@@ -91,7 +115,11 @@ async function startPolling() {
       try {
         const authorization = "Bearer " + bridgeSecret;
         const commandsUrl = `${BASE}/commands?wait=10`;
-        const response = await fetch(commandsUrl, { headers: { Authorization: authorization, "X-Extension-Version": chrome.runtime.getManifest().version } });
+        // 指纹计算竞速 3 秒兜底：绝不能让轮询循环因指纹未就绪而停摆
+        const headers = { Authorization: authorization, "X-Extension-Version": chrome.runtime.getManifest().version };
+        const codeHash = await Promise.race([extensionCodeHash(), wait(3000).then(() => null)]);
+        if (codeHash) headers["X-Extension-Code-Hash"] = codeHash;
+        const response = await fetch(commandsUrl, { headers });
         // 桌面端要求硬重载：磁盘上的扩展文件比运行中的 SW 新（桌面端判定版本落后时才会带此头），
         // 立即重启 SW 加载新代码——此检查必须先于任务入队，避免被挂死任务阻塞
         if (response.headers.get("x-reload-extension") === "1") { chrome.runtime.reload(); return; }
@@ -163,4 +191,4 @@ async function sendToChatGptTab(tabId, message) {
 
 void startPolling();
 
-if (typeof module !== "undefined" && module?.exports) module.exports = { sendToChatGptTab };
+if (typeof module !== "undefined" && module?.exports) module.exports = { sendToChatGptTab, extensionCodeHash };
