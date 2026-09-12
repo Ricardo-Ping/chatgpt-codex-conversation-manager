@@ -127,14 +127,14 @@ pnpm package:mac
 `curl` 下载的文件不携带隔离标记，解压后可直接打开：
 
 ```bash
-curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.4/Conversation-Manager-0.7.4-mac-arm64.zip"
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.5/Conversation-Manager-0.7.5-mac-arm64.zip"
 ```
 
 - 加载浏览器扩展后 30 秒内自动配对；`thread/read` 内容读取需要在 chatgpt.com 页面打开的状态下使用。
 
 ## 已知限制
 
-- `v0.7.4` 支持 Windows x64 与 macOS（Apple Silicon），均支持应用内自动更新；Windows 便携版与 macOS 因未做 Apple 签名，自动更新采用下载校验后原地换包的方式实现。
+- `v0.7.5` 支持 Windows x64 与 macOS（Apple Silicon），均支持应用内自动更新；Windows 便携版与 macOS 因未做 Apple 签名，自动更新采用下载校验后原地换包的方式实现。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
 - Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 

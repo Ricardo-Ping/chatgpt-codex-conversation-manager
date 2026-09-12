@@ -127,14 +127,14 @@ Download `Conversation-Manager-x.y.z-mac-arm64.zip`, extract it, then right-clic
 Files downloaded with `curl` carry no quarantine flag and open directly:
 
 ```bash
-curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.4/Conversation-Manager-0.7.4-mac-arm64.zip"
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.5/Conversation-Manager-0.7.5-mac-arm64.zip"
 ```
 
 - Load the companion browser extension and it auto-pairs within 30 seconds; `thread/read` export requires an open chatgpt.com tab.
 
 ## Current Limits
 
-- `v0.7.4` supports Windows x64 and macOS (Apple Silicon), both with in-app auto-update; the Windows portable build and macOS use a download-verified in-place swap because they are not signed.
+- `v0.7.5` supports Windows x64 and macOS (Apple Silicon), both with in-app auto-update; the Windows portable build and macOS use a download-verified in-place swap because they are not signed.
 - The companion extension is distributed as a Release ZIP; it is not yet on the browser stores.
 - Firefox, and direct access to the ChatGPT desktop client's private chat database, are not supported yet.
 
