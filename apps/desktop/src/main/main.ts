@@ -12,7 +12,7 @@ import { discoverCodexCommands } from "./codex-discovery.js";
 import { syncExtensionFiles } from "./extension-sync.js";
 import { healLoadedExtensionFolders } from "./extension-heal.js";
 import { extensionCodeHash, classifyExtensionStaleness, shouldDemandReload } from "./extension-integrity.js";
-import { loadDailyStats, mergeDailyStats, saveDailyStats, type DailyBucket } from "./stats-daily.js";
+import { loadDailyStats, mergeDailyStats, saveDailyStats, mergeBadgeAwards, type DailyBucket } from "./stats-daily.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, isNewerVersion, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
@@ -194,6 +194,23 @@ ipcMain.handle("stats:daily", async (event, value) => {
   }
   const file = join(app.getPath("userData"), "stats-daily.json");
   const merged = mergeDailyStats(await loadDailyStats(file), incoming);
+  await saveDailyStats(file, merged);
+  return merged;
+});
+// 成就徽章的获得记录：纯本地判定（渲染端算好），主进程只做"保留最早获得时间"的合并，
+// 徽章一旦获得永久保留，不随缓存清理导致的指标回落而消失。
+ipcMain.handle("stats:badges", async (event, value) => {
+  requireRenderer(event);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid badge payload");
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 64) throw new Error("Too many badges");
+  const awards: Record<string, string> = {};
+  for (const [id, earnedAt] of entries) {
+    if (!/^[a-z0-9-]{1,32}$/.test(id) || typeof earnedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T[\d.:+-]{9,26}Z?$/.test(earnedAt)) continue;
+    awards[id] = earnedAt;
+  }
+  const file = join(app.getPath("userData"), "stats-daily.json");
+  const merged = mergeBadgeAwards(await loadDailyStats(file), awards);
   await saveDailyStats(file, merged);
   return merged;
 });

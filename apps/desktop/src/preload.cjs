@@ -62,7 +62,8 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
     pickDirectory: (payload) => ipcRenderer.invoke("dialog:pick-directory", payload)
   }),
   stats: Object.freeze({
-    daily: (buckets) => ipcRenderer.invoke("stats:daily", buckets)
+    daily: (buckets) => ipcRenderer.invoke("stats:daily", buckets),
+    badges: (awards) => ipcRenderer.invoke("stats:badges", awards)
   }),
   updates: Object.freeze({
     getState: () => ipcRenderer.invoke("update:get-state"), setAutoUpdate: (enabled) => ipcRenderer.invoke("update:set-auto", enabled), check: () => ipcRenderer.invoke("update:check"), download: () => ipcRenderer.invoke("update:download"), install: () => ipcRenderer.invoke("update:install"), openRelease: () => ipcRenderer.invoke("update:open-release"),

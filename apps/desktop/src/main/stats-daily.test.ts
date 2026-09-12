@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { emptyDailyStats, loadDailyStats, mergeDailyStats, saveDailyStats } from "./stats-daily.js";
+import { emptyDailyStats, loadDailyStats, mergeDailyStats, mergeBadgeAwards, saveDailyStats } from "./stats-daily.js";
 
 const bucket = (chatgptNew = 0, codexNew = 0, chatgptActive = 0, codexActive = 0) => ({ chatgptNew, codexNew, chatgptActive, codexActive });
 
@@ -31,6 +31,28 @@ describe("mergeDailyStats", () => {
   it("tolerates negative or missing fields from callers", () => {
     const merged = mergeDailyStats(emptyDailyStats(), { "2026-09-03": { chatgptNew: -5, codexNew: 0, chatgptActive: 3, codexActive: 0 } as never });
     expect(merged.days["2026-09-03"]).toEqual(bucket(0, 0, 3, 0));
+  });
+
+  it("preserves badge awards when merging daily buckets", () => {
+    const withBadges = mergeBadgeAwards(emptyDailyStats(), { "streak-7": "2026-09-01T00:00:00.000Z" });
+    const merged = mergeDailyStats(withBadges, { "2026-09-02": bucket(1, 0, 0, 0) });
+    expect(merged.badges).toEqual({ "streak-7": "2026-09-01T00:00:00.000Z" });
+    expect(merged.days["2026-09-02"]).toEqual(bucket(1, 0, 0, 0));
+  });
+});
+
+describe("mergeBadgeAwards", () => {
+  it("keeps the earliest earned time when a badge is re-reported", () => {
+    const existing = mergeBadgeAwards(emptyDailyStats(), { "night-owl": "2026-09-01T10:00:00.000Z" });
+    const merged = mergeBadgeAwards(existing, { "night-owl": "2026-09-05T10:00:00.000Z" });
+    expect(merged.badges?.["night-owl"]).toBe("2026-09-01T10:00:00.000Z");
+  });
+
+  it("adds new badges without touching existing days", () => {
+    const existing = mergeDailyStats(emptyDailyStats(), { "2026-09-01": bucket(3, 1, 8, 2) });
+    const merged = mergeBadgeAwards(existing, { "first-sync": "2026-09-02T08:00:00.000Z" });
+    expect(merged.badges).toEqual({ "first-sync": "2026-09-02T08:00:00.000Z" });
+    expect(merged.days["2026-09-01"]).toEqual(bucket(3, 1, 8, 2));
   });
 });
 

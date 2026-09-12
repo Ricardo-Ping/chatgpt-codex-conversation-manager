@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { echarts, chartPalette, chartTooltip, type ChartPalette } from "./echarts.js";
 import { relativeTime } from "./conversation-viewer.js";
 import { Segmented } from "./segmented.js";
-import { buildDailyBuckets, heatRange, heatSeries, heatSummary, heatLevels, dateKey, type HeatRecord, type HeatWindow } from "./stats-model.js";
+import { buildDailyBuckets, heatRange, heatSeries, heatSummary, heatLevels, dateKey, allTimeStreak, countLateNight, computeBadges, mergeNewCounts, type HeatRecord, type HeatWindow } from "./stats-model.js";
 import type { DailyBucket, DailyStatsFile } from "./global.d.js";
 import { t } from "./strings.js";
 
@@ -232,6 +232,18 @@ type TrendRange = "7" | "30" | "90";
 const TREND_RANGES: Array<[TrendRange, string]> = [["7", "近 7 天"], ["30", "近 30 天"], ["90", "近 90 天"]];
 const HEAT_WINDOWS: Array<[HeatWindow, string]> = [["12m", "近 12 个月"], ["year", "今年"], ["last-year", "去年"]];
 
+// 成就徽章的展示元数据；判定阈值与指标在 stats-model#computeBadges，名称/描述在此处走 i18n
+const BADGE_META: Record<string, { icon: string; name: string; description: string }> = {
+  "first-sync": { icon: "🌱", name: "初来乍到", description: "完成第一次同步" },
+  "hundred-club": { icon: "💯", name: "百条俱乐部", description: "累计 100 条对话" },
+  "five-hundred": { icon: "🏆", name: "五百俱乐部", description: "累计 500 条对话" },
+  "streak-7": { icon: "🔥", name: "七日不间断", description: "连续 7 天都有新会话" },
+  "streak-30": { icon: "🚀", name: "三十日长跑", description: "连续 30 天都有新会话" },
+  "cleaner-100": { icon: "🧹", name: "清理大师", description: "累计归档 100 条会话" },
+  "night-owl": { icon: "🌙", name: "深夜攻坚", description: "在凌晨 0-5 点活跃过 3 次" },
+  "dual-wield": { icon: "⚔️", name: "双栖玩家", description: "ChatGPT 与 Codex 各有 10 条以上" }
+};
+
 function EmptyChart() {
   return <div className="chart-empty"><strong>{t("暂无数据")}</strong><span>{t("先在 ChatGPT 或 Codex 页完成一次同步，再回来看统计。")}</span></div>;
 }
@@ -257,6 +269,28 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
   const heatmap = useMemo(() => buildHeatmap(snapshot?.daily ?? null, computedBuckets, heatWindow, palette), [snapshot, computedBuckets, heatWindow, palette]);
   const heatStats = useMemo(() => heatSummary(heatSeries(heatRange(heatWindow), computedBuckets, snapshot?.daily ?? null)), [snapshot, computedBuckets, heatWindow]);
   const hasData = summary.total > 0;
+
+  // 成就徽章：指标全部来自本地（缓存索引 + 每日日志），一旦获得永久保留——
+  // 获得记录随 stats:badges 写入 stats-daily.json，缓存清理导致的指标回落不会收回徽章
+  const [awards, setAwards] = useState<Record<string, string>>(snapshotCache?.daily?.badges ?? {});
+  const streakDays = useMemo(() => allTimeStreak(mergeNewCounts(computedBuckets, snapshot?.daily ?? null)), [snapshot, computedBuckets]);
+  const lateNightCount = useMemo(() => countLateNight(snapshot?.records ?? []), [snapshot]);
+  const badges = useMemo(() => computeBadges({
+    total: summary.total,
+    archived: summary.archived,
+    streak: streakDays,
+    lateNight: lateNightCount,
+    chatgptCount: summary.byPlatform.chatgpt.length,
+    codexCount: summary.byPlatform.codex.length
+  }), [summary, streakDays, lateNightCount]);
+  useEffect(() => {
+    const newly = badges.filter((badge) => badge.earned && !awards[badge.id]);
+    if (!newly.length) return;
+    const earnedAt = new Date().toISOString();
+    const payload = Object.fromEntries(newly.map((badge) => [badge.id, earnedAt]));
+    void window.conversationManager.stats.badges(payload).then((merged) => setAwards(merged.badges ?? {})).catch(() => {});
+  }, [badges, awards]);
+  const unlockedCount = badges.filter((badge) => badge.earned || awards[badge.id]).length;
 
   return <section className="stats-page">
     <header className="stats-head">
@@ -289,6 +323,27 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
         <span>{t("最活跃的一天")}<b>{heatStats.best ? `${shortDate(heatStats.best.date)} · ${heatStats.best.count}` : "—"}</b></span>
         <span>{t("日均")}<b>{heatStats.average.toFixed(1)}</b></span>
       </div>}
+    </article>
+
+    <article className="stats-card">
+      <h2>{t("成就徽章")}
+        <span className="head-extra">{t("已解锁 {n}/{total}", { n: unlockedCount, total: badges.length })}</span>
+      </h2>
+      <div className="badge-grid">
+        {badges.map((badge) => {
+          const meta = BADGE_META[badge.id]!;
+          const earnedAt = awards[badge.id];
+          const earned = badge.earned || Boolean(earnedAt);
+          return <div key={badge.id} className={`badge ${earned ? "earned" : "locked"}`} title={t(meta.description)}>
+            <span className="badge-icon" aria-hidden>{meta.icon}</span>
+            <div className="badge-text">
+              <strong>{t(meta.name)}</strong>
+              <span>{t(meta.description)}</span>
+            </div>
+            <span className="badge-progress">{earned ? (earnedAt ? shortDate(earnedAt.slice(0, 10)) : "✓") : `${formatCount(Math.min(badge.current, badge.target))}/${formatCount(badge.target)}`}</span>
+          </div>;
+        })}
+      </div>
     </article>
 
     <article className="stats-card">
