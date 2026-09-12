@@ -16,6 +16,7 @@ export interface ChartPalette {
   warn: string;
   ok: string;
   off: string;
+  surface: string;
 }
 
 // 图表配色直接读取应用的 CSS 变量，与全局浅色/深色主题保持一致；
@@ -32,7 +33,18 @@ export function chartPalette(): ChartPalette {
     brandSoft: v("--brand-soft"),
     warn: v("--warn"),
     ok: v("--ok"),
-    off: v("--off")
+    off: v("--off"),
+    surface: v("--surface-solid")
+  };
+}
+
+/** 统一 tooltip 外观：跟随主题的底色 / 边框 / 文字色。 */
+export function chartTooltip(palette: ChartPalette) {
+  return {
+    backgroundColor: palette.surface,
+    borderColor: palette.border,
+    textStyle: { color: palette.text },
+    extraCssText: "border-radius: 10px; box-shadow: 0 10px 28px rgba(0,0,0,.14); padding: 8px 12px;"
   };
 }
 

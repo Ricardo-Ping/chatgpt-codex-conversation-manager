@@ -190,6 +190,8 @@ const en: Record<string, string> = {
   "{platform} 有 {n} 个未命名会话，点击前往重命名": "{platform} has {n} untitled sessions — click to rename them",
   "{platform} 有 {n} 条超过 90 天未动，建议归档": "{platform} has {n} conversations idle for 90+ days — consider archiving",
   "当前没有需要处理的会话": "Nothing needs attention right now",
+  "未命名项目": "Untitled project",
+  "自动重载后仍是旧版本？说明 Chrome 加载的是旧扩展目录：点下方「打开扩展目录」，在 chrome://extensions 移除旧条目，再「加载已解压的扩展程序」选择该目录。": "Still on the old version after the automatic reload? Chrome is loading an outdated extension folder: click \"Open extension directory\" below, remove the old entry in chrome://extensions, then use \"Load unpacked\" to select that folder.",
   "未命名会话": "Untitled conversation",
   "托盘与快捷键": "Tray & shortcuts",
   "关闭主窗口后应用驻留系统托盘；随时按全局快捷键 Alt+Shift+Space 呼出快速搜索。": "Closing the main window keeps the app in the system tray; press Alt+Shift+Space anywhere to summon quick search.",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { echarts, chartPalette, type ChartPalette } from "./echarts.js";
+import { echarts, chartPalette, chartTooltip, type ChartPalette } from "./echarts.js";
 import { relativeTime } from "./conversation-viewer.js";
 import { t } from "./strings.js";
 
@@ -51,6 +51,11 @@ async function gatherSnapshot(): Promise<StatsSnapshot> {
       Object.assign(projects, snapshot.projects ?? {});
       for (const record of snapshot.records) records.push({ id: record.id, title: record.title, createdAt: record.createdAt, updatedAt: record.updatedAt, projectId: record.projectId ?? "", platform: "chatgpt", archived: state === "archived" });
     }
+    // 缓存快照里项目名可能缺失（旧索引），best-effort 用实时项目列表补全
+    try {
+      const live = await window.conversationManager.chatgpt.projects(account.key);
+      for (const project of live.projects) projects[project.id] = project.name;
+    } catch {}
   }
   for (const archived of [false, true]) {
     let cursor: string | null = null;
@@ -113,25 +118,34 @@ function buildTrend(records: StatRecord[], palette: ChartPalette): echarts.EChar
     if (record.platform === "chatgpt") chatgptSeries[offset] = (chatgptSeries[offset] ?? 0) + 1; else codexSeries[offset] = (codexSeries[offset] ?? 0) + 1;
   }
   return {
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-    legend: { data: ["ChatGPT", "Codex"], textStyle: { color: palette.muted }, top: 0 },
-    grid: { left: 40, right: 12, top: 32, bottom: 24 },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...chartTooltip(palette) },
+    legend: { top: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 8, textStyle: { color: palette.muted, fontSize: 12 } },
+    grid: { left: 34, right: 8, top: 34, bottom: 22 },
     xAxis: { type: "category", data: labels, axisLabel: { color: palette.muted, interval: 4 }, axisLine: { lineStyle: { color: palette.border } }, axisTick: { show: false } },
     yAxis: { type: "value", minInterval: 1, axisLabel: { color: palette.muted }, splitLine: { lineStyle: { color: palette.split } } },
     series: [
-      { name: "ChatGPT", type: "bar", stack: "new", barMaxWidth: 18, itemStyle: { color: palette.brand }, data: chatgptSeries },
-      { name: "Codex", type: "bar", stack: "new", barMaxWidth: 18, itemStyle: { color: palette.warn, borderRadius: [4, 4, 0, 0] }, data: codexSeries }
+      { name: "ChatGPT", type: "bar", stack: "new", barMaxWidth: 16, itemStyle: { color: palette.brand }, data: chatgptSeries },
+      { name: "Codex", type: "bar", stack: "new", barMaxWidth: 16, itemStyle: { color: palette.warn, borderRadius: [3, 3, 0, 0] }, data: codexSeries }
     ]
   };
 }
 
 function buildShare(summary: StatsSummary, palette: ChartPalette): echarts.EChartsCoreOption {
   return {
-    tooltip: { trigger: "item" },
-    legend: { bottom: 0, textStyle: { color: palette.muted } },
+    tooltip: { trigger: "item", formatter: "{b}：{c} 条（{d}%）", ...chartTooltip(palette) },
+    legend: { bottom: 0, icon: "circle", itemWidth: 10, itemHeight: 10, textStyle: { color: palette.muted, fontSize: 12 } },
+    title: {
+      text: String(summary.total),
+      subtext: t("总会话"),
+      left: "center", top: "34%",
+      textStyle: { color: palette.text, fontSize: 24, fontWeight: 700 },
+      subtextStyle: { color: palette.muted, fontSize: 11 }
+    },
     series: [{
-      type: "pie", radius: ["52%", "74%"], center: ["50%", "44%"],
-      label: { color: palette.muted, formatter: "{b} {d}%"},
+      type: "pie", radius: ["58%", "76%"], center: ["50%", "42%"], avoidLabelOverlap: false,
+      label: { show: false },
+      emphasis: { scale: false },
+      itemStyle: { borderColor: palette.surface, borderWidth: 3 },
       data: [
         { name: "ChatGPT", value: summary.byPlatform.chatgpt.length, itemStyle: { color: palette.brand } },
         { name: "Codex", value: summary.byPlatform.codex.length, itemStyle: { color: palette.warn } }
@@ -147,12 +161,13 @@ function buildProjectBars(snapshot: StatsSnapshot, top: number, palette: ChartPa
     counts.set(record.projectId, (counts.get(record.projectId) ?? 0) + 1);
   }
   const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).reverse();
+  const label = (id: string) => snapshot.projects[id] || `${t("未命名项目")} ${id.replace(/^g-p-/, "").slice(0, 8)}`;
   return {
-    tooltip: {},
+    tooltip: { trigger: "item", formatter: (params: { name?: string; value?: number }) => `${params.name}：${params.value} 条`, ...chartTooltip(palette) },
     grid: { left: 8, right: 24, top: 8, bottom: 24, containLabel: true },
     xAxis: { type: "value", minInterval: 1, axisLabel: { color: palette.muted }, splitLine: { lineStyle: { color: palette.split } } },
-    yAxis: { type: "category", data: rows.map(([id]) => snapshot.projects[id] || id.slice(0, 12)), axisLabel: { color: palette.muted, width: 120, overflow: "truncate" }, axisTick: { show: false }, axisLine: { lineStyle: { color: palette.border } } },
-    series: [{ type: "bar", barMaxWidth: 16, itemStyle: { color: palette.brand, borderRadius: [0, 8, 8, 0] }, data: rows.map(([, count]) => count) }]
+    yAxis: { type: "category", data: rows.map(([id]) => label(id)), axisLabel: { color: palette.muted, width: 130, overflow: "truncate" }, axisTick: { show: false }, axisLine: { lineStyle: { color: palette.border } } },
+    series: [{ type: "bar", barMaxWidth: 14, itemStyle: { color: palette.brand, borderRadius: [0, 7, 7, 0] }, data: rows.map(([, count]) => count) }]
   };
 }
 

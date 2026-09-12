@@ -313,3 +313,15 @@ button { cursor: pointer; }
 .quick-list time { flex: none; color: var(--text-faint); font-size: 11.5px; }
 .quick-empty { padding: 18px 14px; color: var(--text-faint); font-size: 13px; }
 .quick-foot { margin: 0; padding: 9px 16px; border-top: 1px solid var(--border-soft); color: var(--text-faint); font-size: 11.5px; }
+
+/* 统计页视觉抛光 */
+.kpi-card { position: relative; overflow: hidden; }
+.kpi-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--brand); }
+.kpi-card:nth-child(2)::before { background: var(--brand-2); }
+.kpi-card:nth-child(3)::before { background: var(--warn); }
+.kpi-card:nth-child(4)::before { background: var(--off); }
+.kpi-card:first-child { background: var(--brand-soft); border-color: var(--chip-active-border); }
+.kpi-card:first-child::before { background: var(--brand-text); }
+.stats-card h2 { display: flex; align-items: center; gap: 8px; }
+.stats-card h2::before { content: ""; width: 4px; height: 14px; border-radius: 2px; background: var(--brand); }
+.stats-refresh { box-shadow: var(--card-shadow); }
