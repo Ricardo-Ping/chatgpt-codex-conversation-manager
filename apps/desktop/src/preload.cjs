@@ -61,6 +61,9 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
   dialog: Object.freeze({
     pickDirectory: (payload) => ipcRenderer.invoke("dialog:pick-directory", payload)
   }),
+  stats: Object.freeze({
+    daily: (buckets) => ipcRenderer.invoke("stats:daily", buckets)
+  }),
   updates: Object.freeze({
     getState: () => ipcRenderer.invoke("update:get-state"), setAutoUpdate: (enabled) => ipcRenderer.invoke("update:set-auto", enabled), check: () => ipcRenderer.invoke("update:check"), download: () => ipcRenderer.invoke("update:download"), install: () => ipcRenderer.invoke("update:install"), openRelease: () => ipcRenderer.invoke("update:open-release"),
     onState: (callback) => { if (typeof callback !== "function") return () => {}; const listener = (_event, state) => callback(state); ipcRenderer.on("update:state", listener); return () => ipcRenderer.removeListener("update:state", listener); }

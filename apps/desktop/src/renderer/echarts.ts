@@ -1,10 +1,10 @@
 // ECharts 按需注册：只引入统计页用到的图表/组件与 Canvas 渲染器，控制打包体积。
 import * as echarts from "echarts/core";
-import { BarChart, LineChart, PieChart } from "echarts/charts";
-import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { BarChart, HeatmapChart, LineChart, PieChart } from "echarts/charts";
+import { CalendarComponent, GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 
-echarts.use([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, HeatmapChart, LineChart, PieChart, CalendarComponent, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
 export interface ChartPalette {
   text: string;
@@ -17,6 +17,9 @@ export interface ChartPalette {
   ok: string;
   off: string;
   surface: string;
+  chat: string;
+  codex: string;
+  heat: { empty: string; steps: [string, string, string, string] };
 }
 
 // 图表配色直接读取应用的 CSS 变量，与全局浅色/深色主题保持一致；
@@ -34,7 +37,10 @@ export function chartPalette(): ChartPalette {
     warn: v("--warn"),
     ok: v("--ok"),
     off: v("--off"),
-    surface: v("--surface-solid")
+    surface: v("--surface-solid"),
+    chat: v("--chart-chat"),
+    codex: v("--chart-codex"),
+    heat: { empty: v("--heat-empty"), steps: [v("--heat-1"), v("--heat-2"), v("--heat-3"), v("--heat-4")] }
   };
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-codex-conversation-manager",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "private": true,
   "description": "Local desktop conversation manager for ChatGPT and Codex",
   "author": "Ricardo-Ping (https://github.com/Ricardo-Ping)",

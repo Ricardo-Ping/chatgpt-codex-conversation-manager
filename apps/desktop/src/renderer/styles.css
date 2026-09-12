@@ -12,6 +12,9 @@
   --rail-bg: #e9f2f0; --rail-hover: #f4faf9; --count-bg: #d3e7e3; --count-text: #2c6660; --summary-bg: #eaf5f3; --summary-text: #21635f;
   --row-hover: #f0faf8; --row-focus: #eaf7f4;
   --ok: #12a184; --warn: #dfaa3e; --off: #9db3b6; --wait: #c3d4d6;
+  /* 图表数据序列（与语义色分离）：平台双系列保持冷色系，热力图为品牌青的单色明度阶梯 */
+  --chart-chat: #0e7c74; --chart-codex: #4a7fc1;
+  --heat-empty: #e9edf0; --heat-1: #cfe4e1; --heat-2: #8fc7bf; --heat-3: #49a296; --heat-4: #0b7c74;
   --danger: #ca4d43;
   --notice-bg: #e4f4f1; --notice-text: #23635e; --notice-error-bg: #fff0ee; --notice-error-text: #a43b32;
   --overlay: #14353b59;
@@ -32,6 +35,8 @@
     --rail-bg: #112528; --rail-hover: #173438; --count-bg: #1d474a; --count-text: #8fd0c7; --summary-bg: #133034; --summary-text: #7fc4ba;
     --row-hover: #142f31; --row-focus: #16383a;
     --ok: #23c1a4; --warn: #e5b454; --off: #54706f; --wait: #3d5a5e;
+    --chart-chat: #3cb8ab; --chart-codex: #7aa5de;
+    --heat-empty: #1c3236; --heat-1: #1d4a46; --heat-2: #25635d; --heat-3: #2f837a; --heat-4: #3cb8ab;
     --danger: #d4574c;
     --notice-bg: #10312d; --notice-text: #8fd0c4; --notice-error-bg: #3a1d1a; --notice-error-text: #eda09a;
     --overlay: #04101273;
@@ -314,14 +319,18 @@ button { cursor: pointer; }
 .quick-empty { padding: 18px 14px; color: var(--text-faint); font-size: 13px; }
 .quick-foot { margin: 0; padding: 9px 16px; border-top: 1px solid var(--border-soft); color: var(--text-faint); font-size: 11.5px; }
 
-/* 统计页视觉抛光 */
-.kpi-card { position: relative; overflow: hidden; }
-.kpi-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--brand); }
-.kpi-card:nth-child(2)::before { background: var(--brand-2); }
-.kpi-card:nth-child(3)::before { background: var(--warn); }
-.kpi-card:nth-child(4)::before { background: var(--off); }
-.kpi-card:first-child { background: var(--brand-soft); border-color: var(--chip-active-border); }
-.kpi-card:first-child::before { background: var(--brand-text); }
+/* 统计页视觉抛光：彩色只留给数据本身，卡片容器保持中性 */
+.kpi-card strong { font-variant-numeric: tabular-nums; }
 .stats-card h2 { display: flex; align-items: center; gap: 8px; }
 .stats-card h2::before { content: ""; width: 4px; height: 14px; border-radius: 2px; background: var(--brand); }
+.stats-card h2 .head-extra { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-muted); font-weight: 400; }
 .stats-refresh { box-shadow: var(--card-shadow); }
+.heat-legend { display: inline-flex; align-items: center; gap: 3px; }
+.heat-legend i { width: 10px; height: 10px; border-radius: 2.5px; background: var(--heat-empty); }
+.heat-legend i:nth-child(2) { background: var(--heat-1); }
+.heat-legend i:nth-child(3) { background: var(--heat-2); }
+.heat-legend i:nth-child(4) { background: var(--heat-3); }
+.heat-legend i:nth-child(5) { background: var(--heat-4); }
+.chart-empty { height: 200px; display: grid; place-content: center; gap: 6px; text-align: center; color: var(--text-faint); font-size: 13px; }
+.heat-stats { display: flex; flex-wrap: wrap; gap: 18px; margin: 2px 0 10px; color: var(--text-muted); font-size: 12.5px; }
+.heat-stats b { color: var(--heading); font-weight: 600; font-variant-numeric: tabular-nums; margin-left: 4px; }

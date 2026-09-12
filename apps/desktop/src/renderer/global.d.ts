@@ -5,6 +5,8 @@ export type ThemePreference = "system" | "light" | "dark";
 export interface UpdateState { phase: "unsupported" | "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error"; currentVersion: string; version: string | null; percent: number | null; message: string; autoUpdate: boolean; canAutoInstall: boolean }
 export interface CacheSnapshot { syncedAt: number; fullSyncedAt: number | null; records: CachedConversation[]; syncMode?: "full" | "incremental"; projects?: Record<string, string> }
 export interface BatchResult { succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] }
+export interface DailyBucket { chatgptNew: number; codexNew: number; chatgptActive: number; codexActive: number }
+export interface DailyStatsFile { schemaVersion: 1; days: Record<string, DailyBucket> }
 
 declare global {
   interface Window { conversationManager: {
@@ -12,6 +14,7 @@ declare global {
     openExternal(url: string): Promise<void>;
     setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
     dialog: { pickDirectory(payload?: { defaultPath?: string }): Promise<{ directory: string | null }> };
+    stats: { daily(buckets: Record<string, DailyBucket>): Promise<DailyStatsFile> };
     chatgpt: {
       state(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; readConversation(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; quickSearch(payload: { query?: string; limit?: number }): Promise<{ total: number; rows: Array<{ id: string; accountKey: string; title: string; state: string; createdAt: number | null; updatedAt: number | null; projectId: string | null }> }>; showExtension(): Promise<string>; extensionDirectory(): Promise<string>;
       accounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;
