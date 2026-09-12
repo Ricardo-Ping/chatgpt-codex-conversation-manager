@@ -92,6 +92,9 @@ async function startPolling() {
         const authorization = "Bearer " + bridgeSecret;
         const commandsUrl = `${BASE}/commands?wait=10`;
         const response = await fetch(commandsUrl, { headers: { Authorization: authorization, "X-Extension-Version": chrome.runtime.getManifest().version } });
+        // 桌面端要求硬重载：磁盘上的扩展文件比运行中的 SW 新（桌面端判定版本落后时才会带此头），
+        // 立即重启 SW 加载新代码——此检查必须先于任务入队，避免被挂死任务阻塞
+        if (response.headers.get("x-reload-extension") === "1") { chrome.runtime.reload(); return; }
         void maybeSelfReload(response);
         if (response.status === 401) { await chrome.storage.local.remove("bridgeSecret"); break; }
         if (response.ok) { delay = 1500; for (const job of await response.json()) enqueueRelay(job, bridgeSecret); }

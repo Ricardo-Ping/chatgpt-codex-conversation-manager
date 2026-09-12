@@ -28,11 +28,19 @@ export class ChatGptBridgeServer {
   #expectedExtensionVersion: string | null = null;
   #localHandler: ((type: string, payload: unknown) => Promise<unknown>) | null = null;
   #onSecretChange: ((secret: string | null) => void) | null = null;
+  #reloadHint = false;
 
   constructor(secretFile: string, port = BRIDGE_PORT) { this.#secretFile = secretFile; this.#port = port; }
 
   // 桌面端把自己打包的扩展版本号告诉扩展，扩展发现落后即可自行 reload 升级
   setExpectedExtensionVersion(version: string | null): void { this.#expectedExtensionVersion = version; }
+
+  // 扩展轮询时上报的自身版本（可能因 SW 长期存活而落后于磁盘文件）
+  reportedVersion(): string | null { return this.#extensionVersion; }
+
+  // 要求扩展硬重载（绕过其内部的忙碌/重载守卫）：桌面端检测到运行版本落后于
+  // 磁盘文件、且常规 reload 通道一直没生效时启用
+  setReloadHint(active: boolean): void { this.#reloadHint = active; }
 
   // 本地 API（/v1/local）：供本机 MCP server 等受信进程复用命令管道；由桌面端注册具体语义
   setLocalHandler(handler: (type: string, payload: unknown) => Promise<unknown>): void { this.#localHandler = handler; }
@@ -85,6 +93,8 @@ export class ChatGptBridgeServer {
         res.setHeader("X-Expected-Extension-Version", this.#expectedExtensionVersion);
         res.setHeader("Access-Control-Expose-Headers", "X-Expected-Extension-Version");
       }
+      // 硬重载提示：扩展轮询到该头后立即 chrome.runtime.reload()，绕过其内部守卫
+      if (this.#reloadHint) res.setHeader("X-Reload-Extension", "1");
       if (req.method === "GET" && req.url === "/v1/health") { const state = this.state(); return json(res, 200, { protocolVersion: 1, paired: state.paired, connected: state.connected }); }
       if (req.method === "POST" && req.url === "/v1/pair/auto") { if (!isExtensionOrigin(req.headers.origin)) return json(res, 403, { error: "invalid_origin" }); return await this.#pairAutomatically(res); }
       // 本地 API：与扩展共用密钥但独立分支，不参与扩展在线状态（lastSeen）统计

@@ -4,6 +4,17 @@ import { isAbsolute, join } from "node:path";
 import { syncExtensionFiles } from "./extension-sync.js";
 
 export const BRIDGE_EXTENSION_NAME = "Conversation Manager Bridge";
+// Edge 等浏览器对部分 unpacked 扩展会丢失 manifest 记录（name 变空），
+// 此时靠路径里的固定目录名识别——这是我们对扩展目录的命名约定
+const BRIDGE_FOLDER_MARKER = "chatgpt-browser-bridge-extension";
+
+function isBridgeExtensionEntry(entry: ExtensionSettingsEntry): boolean {
+  const name = entry?.manifest?.name;
+  const path = typeof entry?.path === "string" ? entry.path : "";
+  if (!path || !isAbsolute(path)) return false;
+  if (!existsSync(join(path, "manifest.json"))) return false;
+  return name === BRIDGE_EXTENSION_NAME || path.includes(BRIDGE_FOLDER_MARKER);
+}
 
 interface ExtensionSettingsEntry { manifest?: { name?: unknown; version?: unknown }; path?: unknown }
 
@@ -24,11 +35,8 @@ export async function findLoadedBridgeExtensionPaths(userDataSourceDirs: string[
         const settings = data?.extensions?.settings;
         if (!settings || typeof settings !== "object") continue;
         for (const entry of Object.values(settings)) {
-          const name = entry?.manifest?.name;
-          const path = typeof entry?.path === "string" ? entry.path : "";
-          // unpacked 扩展的 path 是绝对路径；商店扩展是相对 ID 目录，直接跳过
-          if (name !== BRIDGE_EXTENSION_NAME || !path || !isAbsolute(path)) continue;
-          if (!existsSync(join(path, "manifest.json"))) continue;
+          if (!isBridgeExtensionEntry(entry)) continue;
+          const path = entry.path as string;
           if (!found.includes(path)) found.push(path);
         }
       }

@@ -96,6 +96,25 @@ describe("ChatGptBridgeServer", () => {
     expect(server.secretText()).toBe(secret);
     expect(changes[changes.length - 1]).toBe(secret);
   });
+
+  it("carries the hard-reload hint header only while the hint is active", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-hint-")); const port = 38000 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const secret = await pairAutomatically(server, port);
+    const headers = { Authorization: `Bearer ${secret}` };
+    const url = `http://127.0.0.1:${port}/v1/commands`;
+
+    const withoutHint = await fetch(url, { headers });
+    expect(withoutHint.headers.get("x-reload-extension")).toBeNull();
+
+    server.setReloadHint(true);
+    const withHint = await fetch(url, { headers });
+    expect(withHint.headers.get("x-reload-extension")).toBe("1");
+
+    server.setReloadHint(false);
+    const cleared = await fetch(url, { headers });
+    expect(cleared.headers.get("x-reload-extension")).toBeNull();
+  });
 });
 
 describe("ConversationIndexStore", () => {

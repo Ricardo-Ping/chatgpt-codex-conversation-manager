@@ -12,7 +12,7 @@ import { discoverCodexCommands } from "./codex-discovery.js";
 import { syncExtensionFiles } from "./extension-sync.js";
 import { healLoadedExtensionFolders } from "./extension-heal.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
-import { cleanupMacInstallLeftovers, macAppBundlePath } from "./mac-updater.js";
+import { cleanupMacInstallLeftovers, isNewerVersion, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
 import { loadLanguagePreference, saveLanguagePreference, setAppLanguage, appLanguage, M, type AppLanguage } from "./language.js";
 import { applyImageRewrites, chatGptImageDir, chatgptTranscriptMarkdown, codexMessagesFromTurns, codexMetadataMarkdown, codexTranscriptMarkdown, codexTurnsFromPayload, extractChatGptImageUrls, safeFileName } from "./export.js";
@@ -132,7 +132,7 @@ async function connectCodex(): Promise<boolean> {
 }
 ipcMain.handle("app:version", (event) => { requireRenderer(event); return app.getVersion(); });
 ipcMain.handle("external:open", async (event, value) => { requireRenderer(event); if (value !== CHATGPT_URL && value !== RELEASE_URL && value !== "https://developers.openai.com/codex/app-server") throw new Error("URL not allowed"); await shell.openExternal(value); });
-ipcMain.handle("chatgpt:state", (event) => { requireRenderer(event); return bridge.state(); });
+ipcMain.handle("chatgpt:state", (event) => { requireRenderer(event); updateExtensionReloadHint(); return bridge.state(); });
 ipcMain.handle("chatgpt:clear-pairing", async (event) => { requireRenderer(event); await bridge.clearPairing(); return bridge.state(); });
 ipcMain.handle("chatgpt:open", async (event) => { requireRenderer(event); await shell.openExternal(CHATGPT_URL); });
 ipcMain.handle("chatgpt:open-conversation", async (event, value) => { requireRenderer(event); await shell.openExternal(`${CHATGPT_URL}c/${requireId(value)}`); });
@@ -383,6 +383,20 @@ function bundledExtensionDirectory(): string { return app.isPackaged ? join(proc
 // Chrome 实际加载的目录固定指向稳定目录（启动时同步最新扩展文件），
 // 这样扩展的自动重载总能读到新文件，用户只需在 Chrome 里加载一次
 let extensionDirOverride: string | null = null;
+let expectedExtensionVersion: string | null = null;
+// 扩展硬重载提示的状态：同一上报版本最多提示 2 次（磁盘文件也旧时停止，避免重载风暴），
+// 上报版本变化则重新计数
+const reloadHintState = { reported: "", count: 0 };
+function updateExtensionReloadHint(): void {
+  const reported = bridge.reportedVersion();
+  if (!expectedExtensionVersion || !reported || !isNewerVersion(expectedExtensionVersion, reported)) {
+    reloadHintState.count = 0; bridge.setReloadHint(false); return;
+  }
+  if (reloadHintState.reported !== reported) { reloadHintState.reported = reported; reloadHintState.count = 0; }
+  if (reloadHintState.count >= 2) { bridge.setReloadHint(false); return; }
+  reloadHintState.count += 1;
+  bridge.setReloadHint(true);
+}
 function extensionDirectory(): string { return extensionDirOverride ?? bundledExtensionDirectory(); }
 
 // MCP 端点描述文件：让本机 MCP server（Claude Code / Cline / Cursor 等客户端）发现本地服务。
@@ -490,7 +504,7 @@ app.whenReady().then(async () => {
   await indexStore.load();
   try {
     const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown };
-    if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version);
+    if (isValidVersionFormat(bundled.version)) { bridge.setExpectedExtensionVersion(bundled.version); expectedExtensionVersion = bundled.version; }
   } catch {}
   // 自愈：若 Chrome/Edge 加载的是旧目录的扩展，把最新文件直接写进该目录——
   // 扩展下次轮询发现期望版本更新后自动 reload 即可拿到新代码，无需人工重载

@@ -34,4 +34,16 @@ describe("findLoadedBridgeExtensionPaths", () => {
     await writeFile(join(userDataRoot, "Profile 1", "Preferences"), JSON.stringify(prefs));
     expect(await findLoadedBridgeExtensionPaths([userDataRoot])).toEqual([]);
   });
+
+  it("still finds entries whose manifest name was dropped, via the folder marker", async () => {
+    const userDataRoot = await mkdtemp(join(tmpdir(), "cm-heal-"));
+    const oldFolder = await mkdtemp(join(tmpdir(), "cm-installed-"));
+    const extFolder = join(oldFolder, "resources", "chatgpt-browser-bridge-extension");
+    await mkdir(extFolder, { recursive: true });
+    await writeFile(join(extFolder, "manifest.json"), "{}");
+    const prefs = { extensions: { settings: { "igidacfg": { path: extFolder } } } };
+    await mkdir(join(userDataRoot, "Default"), { recursive: true });
+    await writeFile(join(userDataRoot, "Default", "Secure Preferences"), JSON.stringify(prefs));
+    expect(await findLoadedBridgeExtensionPaths([userDataRoot])).toEqual([extFolder]);
+  });
 });
