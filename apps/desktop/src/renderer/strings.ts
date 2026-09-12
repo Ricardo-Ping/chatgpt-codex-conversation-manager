@@ -112,7 +112,7 @@ const en: Record<string, string> = {
   "{n} 条消息": "{n} messages",
   "复制全文": "Copy all",
   "已复制全文": "All copied",
-  "首次使用：在 Chrome/Edge 打开 chrome://extensions，开启“开发者模式”，点击“加载已解压的扩展程序”，选择上面的扩展目录。": "First time: open chrome://extensions in Chrome/Edge, turn on “Developer mode”, click “Load unpacked” and pick the extension folder above.",
+  "首次使用：在 Chrome/Edge 打开 chrome://extensions，开启“开发者模式”，点击“加载已解压的扩展程序”，选择上面的扩展目录。只需加载一次，之后扩展随桌面端自动更新。": "First time: open chrome://extensions in Chrome/Edge, turn on “Developer mode”, click “Load unpacked” and pick the extension folder above. Load it once — the extension then updates automatically with the desktop app.",
   "{t}同步": "synced {t}",
   "{t}完整校准": "full calibration {t}",
   "{n} 条记录": "{n} records",

@@ -130,7 +130,7 @@ function ConnectionCard() {
   const directory = useExtensionDirectory();
   return <section className="connection-card"><div className="connection-art">↔</div><p className="eyebrow">{t("安全浏览器桥接")}</p><h1>{t("复用浏览器中的 ChatGPT 登录")}</h1><p>{t("无需在管理器中再次登录。在 Chrome/Edge 中加载配套扩展后即会自动完成配对，无需其他操作；也可以点击浏览器工具栏中的扩展，再点“一键连接桌面管理器”。Cookie 和访问令牌始终留在浏览器。")}</p>
     <ExtensionPath label={t("扩展目录")} value={directory} />
-    <p className="extension-hint">{t("首次使用：在 Chrome/Edge 打开 chrome://extensions，开启“开发者模式”，点击“加载已解压的扩展程序”，选择上面的扩展目录。")}</p>
+    <p className="extension-hint">{t("首次使用：在 Chrome/Edge 打开 chrome://extensions，开启“开发者模式”，点击“加载已解压的扩展程序”，选择上面的扩展目录。只需加载一次，之后扩展随桌面端自动更新。")}</p>
     <div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>{t("打开扩展目录")}</button><button onClick={() => void window.conversationManager.chatgpt.openChatGpt()}>{t("打开 ChatGPT")}</button></div>
   </section>;
 }

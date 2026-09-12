@@ -9,6 +9,7 @@ import { BRIDGE_PORT, ChatGptBridgeServer, ConversationIndexStore, chooseCacheSy
 import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { isValidVersionFormat } from "@conversation-manager/conversation-domain";
 import { discoverCodexCommands } from "./codex-discovery.js";
+import { syncExtensionFiles } from "./extension-sync.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
@@ -377,7 +378,11 @@ ipcMain.handle("log:save", async (event) => {
 ipcMain.handle("language:get", (event) => { requireRenderer(event); return appLanguage(); });
 ipcMain.handle("language:set", async (event, value) => { requireRenderer(event); if (value !== "zh" && value !== "en") throw new Error("Invalid language"); setAppLanguage(value); await saveLanguagePreference(app.getPath("userData"), appLanguage()); refreshUpdateMessage(); rebuildTrayMenu(); return appLanguage(); });
 
-function extensionDirectory(): string { return app.isPackaged ? join(process.resourcesPath, "chatgpt-browser-bridge-extension") : join(app.getAppPath(), "..", "..", "packages", "chatgpt-browser-bridge-extension"); }
+function bundledExtensionDirectory(): string { return app.isPackaged ? join(process.resourcesPath, "chatgpt-browser-bridge-extension") : join(app.getAppPath(), "..", "..", "packages", "chatgpt-browser-bridge-extension"); }
+// Chrome 实际加载的目录固定指向稳定目录（启动时同步最新扩展文件），
+// 这样扩展的自动重载总能读到新文件，用户只需在 Chrome 里加载一次
+let extensionDirOverride: string | null = null;
+function extensionDirectory(): string { return extensionDirOverride ?? bundledExtensionDirectory(); }
 
 // MCP 端点描述文件：让本机 MCP server（Claude Code / Cline / Cursor 等客户端）发现本地服务。
 // 密钥与 bridge-secret 同源，文件权限 0600；未配对时 secret 为 null，MCP 侧据此给出明确提示
@@ -468,6 +473,8 @@ app.whenReady().then(async () => {
   setAppLanguage(await loadLanguagePreference(userData, process.platform === "darwin" ? systemDefault : "zh"));
   if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" });
   logInfo(M().appStart(app.getVersion(), String(app.isPackaged)));
+  // 把最新扩展同步到稳定目录（必须在读取期望版本与启动桥接之前完成）
+  try { extensionDirOverride = await syncExtensionFiles(bundledExtensionDirectory(), join(homedir(), ".conversation-manager", "extension")); } catch (syncError) { logWarn(`extension sync to stable dir failed, falling back to bundled dir: ${syncError instanceof Error ? syncError.message : String(syncError)}`); }
   try {
     const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown };
     if (typeof saved.command === "string" && saved.command.length <= 1_000) {
