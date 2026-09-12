@@ -1,6 +1,8 @@
 /* 虚拟滚动列表：分组头与行的绝对定位容器样式 */
 .virtual-item{left:0;position:absolute;width:100%}
-.group-header-row{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;padding:11px 20px;background:var(--summary-bg);color:var(--summary-text);font-size:13px;font-weight:700;cursor:pointer;border:0;border-bottom:1px solid var(--border);text-align:left}
+/* 分组头保持单行：长文件夹名截断省略，不与右侧计数/路径挤压换行 */
+.group-header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:11px 20px;background:var(--summary-bg);color:var(--summary-text);font-size:13px;font-weight:700;cursor:pointer;border:0;border-bottom:1px solid var(--border);text-align:left;line-height:1.4}
+.group-header-row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .group-header-row span::before{content:"▸";display:inline-block;margin-right:8px;transition:transform .15s}
 .group-header-row.open span::before{transform:rotate(90deg)}
-.group-header-row small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-faint);font-size:11px;font-weight:400}
+.group-header-row small{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-faint);font-size:11px;font-weight:400}
