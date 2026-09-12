@@ -42,6 +42,7 @@ declare global {
       exportSessions(payload: { directory: string; items: Array<{ id: string; title: string; preview: string; cwd: string | null }> }): Promise<{ saved: number; failed: Array<{ id: string; message: string }>; directory: string }>;
       exportSessionsArchive(): Promise<{ cancelled: boolean; count?: number; file?: string }>;
       importSessionsArchive(): Promise<{ cancelled: boolean; imported?: number; skipped?: number }>;
+      onArchiveProgress(callback: (progress: { phase: string; files: number }) => void): () => void;
     };
     logs: { read(): Promise<string>; clear(): Promise<boolean>; save(): Promise<{ saved: boolean; path?: string }>; info(message: string): Promise<void>; onLine(callback: (line: string) => void): () => void };
     language: { get(): Promise<"zh" | "en">; set(value: "zh" | "en"): Promise<"zh" | "en"> };

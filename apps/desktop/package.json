@@ -13,7 +13,7 @@
   },
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.main.json && vite build",
+    "build": "tsc -p tsconfig.main.json && esbuild src/main/archive-worker.ts --bundle --platform=node --format=esm --outfile=dist/main/archive-worker.js && vite build",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "test": "vitest run --exclude \"dist/**\"",
     "dev": "pnpm -w build && electron .",
@@ -42,6 +42,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "electron": "^44.2.0",
     "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"
@@ -83,6 +84,10 @@
       {
         "from": "build/icon.png",
         "to": "tray-icon.png"
+      },
+      {
+        "from": "dist/main/archive-worker.js",
+        "to": "archive-worker.js"
       }
     ],
     "win": {

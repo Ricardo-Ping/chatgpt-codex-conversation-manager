@@ -40,7 +40,8 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
       runBatch: (action, ids, confirmationToken) => ipcRenderer.invoke("codex:batch", { action, ids, confirmationToken }),
       exportSessions: (payload) => ipcRenderer.invoke("codex:export", payload),
     exportSessionsArchive: () => ipcRenderer.invoke("codex:export-sessions-archive"),
-    importSessionsArchive: () => ipcRenderer.invoke("codex:import-sessions-archive")
+    importSessionsArchive: () => ipcRenderer.invoke("codex:import-sessions-archive"),
+    onArchiveProgress: (callback) => { if (typeof callback !== "function") return () => {}; const listener = (_event, progress) => callback(progress); ipcRenderer.on("codex:archive-progress", listener); return () => ipcRenderer.removeListener("codex:archive-progress", listener); }
   }),
   logs: Object.freeze({
     read: () => ipcRenderer.invoke("log:read"),

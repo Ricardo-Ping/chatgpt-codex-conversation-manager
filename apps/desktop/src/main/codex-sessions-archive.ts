@@ -33,7 +33,7 @@ export function safeArchiveEntry(name: string): string | null {
   return normalized;
 }
 
-export async function buildSessionsArchive(codexHome: string): Promise<{ zip: Uint8Array; count: number; bytes: number }> {
+export async function buildSessionsArchive(codexHome: string, onProgress?: (phase: "collect" | "zip", files: number, bytes: number) => void): Promise<{ zip: Uint8Array; count: number; bytes: number }> {
   const files: string[] = [];
   for (const dir of SESSION_DIRS) {
     const root = join(codexHome, dir);
@@ -47,6 +47,7 @@ export async function buildSessionsArchive(codexHome: string): Promise<{ zip: Ui
     bytes += content.byteLength;
     payload[relative] = new Uint8Array(content);
   }
+  onProgress?.("zip", files.length, bytes);
   return { zip: zipSync(payload, { level: 6 }), count: files.length, bytes };
 }
 
