@@ -63,6 +63,29 @@ describe("ChatGptBridgeServer", () => {
     await expect(commands.json()).resolves.toEqual([]);
   });
 
+  it("keeps a slow command alive while the extension reports progress heartbeats", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 35500 + Math.floor(Math.random() * 1000);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const secret = await pairAutomatically(server, port);
+    const pending = server.request("list", {}, 40); // 40ms 预算，执行会拖到 150ms 以上
+    const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    const [command] = await commands.json() as Array<{ requestId: string }>;
+    // 扩展接管执行：每 15ms 报一次心跳，总执行时长 150ms >> 40ms 原始预算
+    const heartbeat = setInterval(() => {
+      void fetch(`http://127.0.0.1:${port}/v1/progress`, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify({ protocolVersion: 1, requestId: command!.requestId }) });
+    }, 15);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    let settled = false;
+    void pending.then(() => { settled = true; }, () => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(settled).toBe(false); // 心跳持续刷新窗口，命令不应被误杀
+    clearInterval(heartbeat);
+    // 停止心跳后窗口到期 → 超时兜底，命令从队列移除
+    await expect(pending).rejects.toThrow("timed out");
+    const after = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    await expect(after.json()).resolves.toEqual([]);
+  });
+
   it("serves authenticated local commands without marking the extension connected", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-local-")); const port = 36000 + Math.floor(Math.random() * 1000);
     const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();

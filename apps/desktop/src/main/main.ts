@@ -12,6 +12,7 @@ import { discoverCodexCommands } from "./codex-discovery.js";
 import { syncExtensionFiles } from "./extension-sync.js";
 import { healLoadedExtensionFolders } from "./extension-heal.js";
 import { extensionCodeHash, classifyExtensionStaleness, shouldDemandReload } from "./extension-integrity.js";
+import { loadDailyStats, mergeDailyStats, saveDailyStats, type DailyBucket } from "./stats-daily.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, isNewerVersion, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
@@ -25,6 +26,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const CHATGPT_URL = "https://chatgpt.com/";
 const BRIDGE_TIMEOUT_LONG_MS = 300_000;
 const BRIDGE_TIMEOUT_PROJECTS_MS = 120_000;
+// list 全量/增量同步涉及主列表分页 + 全部项目分页，慢网络下可数分钟；预算单独放宽，
+// 避免「扩展在线且代码最新」的同步在 5 分钟预算上误报超时（配合扩展侧 20s 单请求限时）
+const BRIDGE_TIMEOUT_LIST_MS = 600_000;
 // 会话正文读取缓存：重复查看同一会话时秒开，编辑类操作不走此缓存
 const readConversationCache = new Map<string, { at: number; data: { title: string; messages: Array<{ role: string; at: number | null; text: string }> } }>();
 const READ_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -150,7 +154,7 @@ ipcMain.handle("chatgpt:cached-accounts", (event) => { requireRenderer(event); r
 ipcMain.handle("chatgpt:cache", (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return indexStore.read(requireAccount(input.accountKey), requireState(input.state)); });
 ipcMain.handle("chatgpt:list", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const state = requireState(input.state); const label = typeof input.label === "string" ? input.label.slice(0, 100) : "ChatGPT"; const cached = indexStore.read(accountKey, state); const mode = chooseCacheSyncMode(cached, input.full === true);
-  const result = await bridgeRequest("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, BRIDGE_TIMEOUT_LONG_MS); if (!result.ok) throw new Error(result.error?.message || M().syncFailed);
+  const result = await bridgeRequest("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, BRIDGE_TIMEOUT_LIST_MS); if (!result.ok) throw new Error(result.error?.message || M().syncFailed);
   const payload = result.payload as { records?: unknown; full?: boolean; projects?: unknown }; const records = sanitizeRecords(payload.records, state); const projects = sanitizeProjects(payload.projects); const calibrated = mode === "full" || payload.full === true; if (calibrated) await indexStore.replace(accountKey, label, state, records, true, projects); else await indexStore.merge(accountKey, label, state, records, projects); const snapshot = indexStore.read(accountKey, state); return snapshot ? { ...snapshot, syncMode: calibrated ? "full" : "incremental" } : null;
 });
 ipcMain.handle("chatgpt:preview-delete", (event, value) => { requireRenderer(event); const ids = requireIds(value); return { confirmationToken: rememberConfirmation("chatgpt", ids) }; });
@@ -174,6 +178,25 @@ async function runChatGptBatch(accountKey: string, action: "archive" | "restore"
 ipcMain.handle("chatgpt:cancel", async (event) => { requireRenderer(event); if (!currentChatBatchId) return { cancelled: false }; const result = await bridgeRequest("cancel", { requestId: currentChatBatchId }); return { cancelled: result.ok }; });
 ipcMain.handle("chatgpt:cache-stats", (event) => { requireRenderer(event); return indexStore.stats(); });
 ipcMain.handle("chatgpt:clear-cache", async (event) => { requireRenderer(event); await indexStore.clear(); return indexStore.stats(); });
+// 统计热力图的每日聚合日志：渲染端从缓存索引全量回算后提交，主进程逐日取 max 合并持久化。
+// 只存计数不存内容；清空会话缓存后热力图历史仍然保留。
+ipcMain.handle("stats:daily", async (event, value) => {
+  requireRenderer(event);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid daily stats payload");
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > 4_000) throw new Error("Too many daily entries");
+  const num = (raw: unknown): number => typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.min(1_000_000, Math.floor(raw))) : 0;
+  const incoming: Record<string, DailyBucket> = {};
+  for (const [date, raw] of entries) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const bucket = raw as Record<string, unknown>;
+    incoming[date] = { chatgptNew: num(bucket.chatgptNew), codexNew: num(bucket.codexNew), chatgptActive: num(bucket.chatgptActive), codexActive: num(bucket.codexActive) };
+  }
+  const file = join(app.getPath("userData"), "stats-daily.json");
+  const merged = mergeDailyStats(await loadDailyStats(file), incoming);
+  await saveDailyStats(file, merged);
+  return merged;
+});
 ipcMain.handle("chatgpt:export", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const accountKey = requireAccount(input.accountKey);
@@ -427,8 +450,10 @@ async function bridgeRequest(type: BridgeCommandType, payload: unknown, timeoutM
       reportedCodeHash: bridge.reportedCodeHash(),
       expectedCodeHash: await diskExtensionCodeHash(),
     });
-    if (!shouldDemandReload(staleness)) throw error;
+    // 无论是否判定陈旧都记录：fresh 超时同样要留痕（扩展在线但命令真超时 = 慢网络/限流），
+    // 避免这类场景在日志里完全无迹可寻
     logWarn(`bridge ${type} timed out while connected; extension staleness=${staleness}, reported=${bridge.reportedVersion() || "?"}, hash=${bridge.reportedCodeHash() ? bridge.reportedCodeHash()!.slice(0, 8) : "none"}`);
+    if (!shouldDemandReload(staleness)) throw error;
     // 扩展可能正处于自愈/reload 窗口（SW 重启后恢复轮询需要几秒）：等待一次再重发命令，
     // 让重载后的新代码有机会完成本请求，而不是把超时立即甩给用户；仍失败才提示重载
     await new Promise((resolve) => setTimeout(resolve, 4_000));

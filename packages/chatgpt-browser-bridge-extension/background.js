@@ -144,6 +144,10 @@ async function startPolling() {
 async function relayJob(job, secret) {
   beginKeepAlive();
   let result;
+  // 命令活性心跳：执行期间每 15 秒向桌面端报告"命令仍在推进"。
+  // 桌面端据此刷新超时窗口——完整校准/项目多时的慢同步不再被固定预算误杀；
+  // 命令结束或 SW 卡死时心跳停止，桌面端窗口到期才超时兜底。
+  const heartbeat = setInterval(() => { void reportProgress(job.requestId, secret); }, 15_000);
   try {
     if (!Number.isFinite(job?.expiresAt) || job.expiresAt <= Date.now()) throw new Error("桌面命令已过期，未执行 / Desktop command expired");
     const tabs = await findChatGptTabs({ url: CHATGPT_TAB_PATTERNS });
@@ -160,6 +164,7 @@ async function relayJob(job, secret) {
       if (result === null) result = { ok: false, error: { code: "CHATGPT_TAB_UNRESPONSIVE", message: (lastError && lastError.message) || "ChatGPT 页面长时间无响应，请刷新 ChatGPT 标签页后重试 / The ChatGPT tab is not responding — refresh it and retry", retryable: true } };
     }
   } catch (error) { result = { ok: false, error: { code: "INTERNAL_ERROR", message: error.message || String(error), retryable: true } }; }
+  clearInterval(heartbeat);
   try { await reportResult(job, secret, result); } finally { endKeepAlive(); }
 }
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -181,6 +186,10 @@ function enqueueRelay(job, secret) {
 }
 async function reportResult(job, secret, result) {
   try { await fetch(`${BASE}/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId: job.requestId, ...result }) }); } catch {}
+}
+// 旧桌面端不认识 /v1/progress 会返回 404，吞掉即可；心跳失败不影响命令本身
+async function reportProgress(requestId, secret) {
+  try { await fetch(`${BASE}/progress`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ protocolVersion: 1, requestId }) }); } catch {}
 }
 // 单次页面消息限时 60 秒：被 Chrome 冻结/休眠的标签页可能永远不应答，
 // 无超时会卡死转发队列，让桌面端每次读取都等满整个超时预算

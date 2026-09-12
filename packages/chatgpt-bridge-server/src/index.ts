@@ -14,7 +14,7 @@ export interface BridgeError { code: string; message: string; retryable: boolean
 export interface BridgeResult { protocolVersion: 1; requestId: string; ok: boolean; payload?: unknown; error?: BridgeError }
 export interface PairingState { paired: boolean; connected: boolean; extensionVersion: string | null }
 
-type Pending = { resolve(value: BridgeResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
+type Pending = { resolve(value: BridgeResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout>; timeoutMs: number };
 
 export class ChatGptBridgeServer {
   readonly #secretFile: string;
@@ -87,8 +87,12 @@ export class ChatGptBridgeServer {
     const command: BridgeCommand = { protocolVersion: 1, requestId, type, createdAt, expiresAt: createdAt + timeoutMs, payload };
     this.#commands.push(command);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.#pending.delete(requestId); this.#commands = this.#commands.filter((item) => item.requestId !== requestId); reject(new Error("Browser bridge request timed out")); }, timeoutMs);
-      this.#pending.set(requestId, { resolve, reject, timer });
+      // 活性窗口模型：超时不再是一锤子买卖。命令被扩展接管执行期间，扩展定期 POST /v1/progress
+      // 报心跳，每次心跳把窗口重置为完整预算——只要命令在推进就继续等；命令死亡（心跳停止）后
+      // 窗口才会到期。旧扩展不发心跳，行为退化为固定预算超时，向后兼容。
+      const expire = (): void => { this.#pending.delete(requestId); this.#commands = this.#commands.filter((item) => item.requestId !== requestId); reject(new Error("Browser bridge request timed out")); };
+      const timer = setTimeout(expire, timeoutMs);
+      this.#pending.set(requestId, { resolve, reject, timer, timeoutMs });
     });
   }
 
@@ -127,6 +131,18 @@ export class ChatGptBridgeServer {
           while (!this.#commands.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
         }
         return json(res, 200, this.#commands.splice(0, 20));
+      }
+      if (req.method === "POST" && req.url === "/v1/progress") {
+        // 命令活性心跳：扩展在执行期间定期上报，桌面端把该命令的超时窗口重置为完整预算。
+        // 慢同步（完整校准、项目多）不再被固定预算误杀；命令真卡死时心跳停止，窗口到期兜底。
+        const body = await readJson<{ protocolVersion?: unknown; requestId?: unknown }>(req);
+        if (body.protocolVersion !== 1 || typeof body.requestId !== "string") return json(res, 400, { error: "invalid_progress" });
+        const pending = this.#pending.get(body.requestId);
+        if (pending) {
+          clearTimeout(pending.timer);
+          pending.timer = setTimeout(() => { this.#pending.delete(body.requestId); this.#commands = this.#commands.filter((item) => item.requestId !== body.requestId); pending.reject(new Error("Browser bridge request timed out")); }, pending.timeoutMs);
+        }
+        return json(res, 204, null);
       }
       if (req.method === "POST" && req.url === "/v1/results") {
         const result = await readJson<BridgeResult>(req);

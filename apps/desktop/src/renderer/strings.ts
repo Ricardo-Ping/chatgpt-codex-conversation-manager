@@ -41,6 +41,7 @@ const en: Record<string, string> = {
   "最早优先": "Oldest first",
   "完整刷新": "Full refresh",
   "同步中…": "Syncing…",
+  "正在完整同步，项目多时可能需要几分钟…": "Full sync in progress — this may take a few minutes with many projects…",
   "打开 ChatGPT": "Open ChatGPT",
   "保存会话": "Save conversations",
   "搜索标题（按 / 聚焦）": "Search titles (press / to focus)",

@@ -233,14 +233,15 @@
       for (let attempt = 0; attempt < 3; attempt += 1) {
         response = await this.fetchWithTimeout(path, accountId, options);
         if (options.signal?.aborted || (response.status !== 429 && response.status < 500)) break;
-        await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt)));
+        await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** attempt)));
       }
       if (!response?.ok) { if (response.status === 401 || response.status === 403) this.auth = null; throw await responseError(response, "读取 ChatGPT 数据失败"); } try { return await response.json(); } catch { throw new BridgeError("INCOMPATIBLE_API", "ChatGPT 返回结构无法解析"); }
     }
-    // 单次请求限时 45 秒：ChatGPT 后端偶发挂起（代理停滞、连接假死）时，
-    // 旧实现会无限等待，串行转发队列被堵死后所有读取都在桌面端 5 分钟才超时。
+    // 单次请求限时 20 秒：ChatGPT 分页接口正常 <2 秒返回；慢网络/挂起时 45 秒的旧限时
+    // 会在项目多的情况下把单条 list 拖到几分钟，超过桌面端预算。20 秒足以区分"慢"与"挂起"，
+    // 超时立即回报 REQUEST_TIMEOUT 快速失败，不再拖死转发队列。
     async fetchWithTimeout(path, accountId, options) {
-      const timeoutMs = typeof options.timeoutMs === "number" && options.timeoutMs >= 1_000 ? options.timeoutMs : 45_000;
+      const timeoutMs = typeof options.timeoutMs === "number" && options.timeoutMs >= 1_000 ? options.timeoutMs : 20_000;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       const onOuterAbort = () => controller.abort();
