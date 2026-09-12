@@ -1,0 +1,5 @@
+#!/bin/sh
+# 推送前跑全量校验（所有 workspace 包的 build → typecheck → test，拓扑序）。
+# 目的：终结"本地没验证、CI 反复挂"的循环；校验不过则推送被拒绝。
+# 临时跳过（慎用）：git push --no-verify
+node scripts/verify-all.mjs

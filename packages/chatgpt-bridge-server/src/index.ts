@@ -21,6 +21,7 @@ export class ChatGptBridgeServer {
   readonly #port: number;
   #server: Server | null = null;
   #secret: Buffer | null = null;
+  #boundPort: number | null = null;
   #commands: BridgeCommand[] = [];
   #pending = new Map<string, Pending>();
   #lastSeen = 0;
@@ -63,8 +64,15 @@ export class ChatGptBridgeServer {
     this.#server = createServer((req, res) => void this.#handle(req, res));
     await new Promise<void>((resolve, reject) => {
       this.#server!.once("error", reject);
-      this.#server!.listen(this.#port, BRIDGE_HOST, () => { this.#server!.off("error", reject); resolve(); });
+      this.#server!.listen(this.#port, BRIDGE_HOST, () => { this.#server!.off("error", reject); this.#boundPort = (this.#server!.address() as { port: number }).port; resolve(); });
     });
+  }
+
+  // 实际监听端口：测试传 port 0 时由操作系统分配临时端口，
+  // 彻底避免随机段端口与其它测试进程/正在运行的应用冲突导致的偶发失败
+  port(): number {
+    if (this.#boundPort === null) throw new Error("bridge server is not listening");
+    return this.#boundPort;
   }
 
   async close(): Promise<void> {

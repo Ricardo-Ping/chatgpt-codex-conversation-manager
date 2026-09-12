@@ -7,8 +7,8 @@ import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from
 const servers: ChatGptBridgeServer[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => server.close())); });
 
-async function pairAutomatically(server: ChatGptBridgeServer, port: number): Promise<string> {
-  const response = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
+async function pairAutomatically(server: ChatGptBridgeServer): Promise<string> {
+  const response = await fetch(`http://127.0.0.1:${server.port()}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
   expect(response.status).toBe(200);
   const { secret } = await response.json() as { secret: string };
   return secret;
@@ -16,8 +16,8 @@ async function pairAutomatically(server: ChatGptBridgeServer, port: number): Pro
 
 describe("ChatGptBridgeServer", () => {
   it("pairs with one extension click and never reissues the secret", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 32000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
     const denied = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST" });
     expect(denied.status).toBe(403);
     const response = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
@@ -30,8 +30,8 @@ describe("ChatGptBridgeServer", () => {
   });
 
   it("exposes the expected extension version header for self-reload", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 32500 + Math.floor(Math.random() * 400);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
     const withoutVersion = await fetch(`http://127.0.0.1:${port}/v1/health`);
     expect(withoutVersion.headers.get("x-expected-extension-version")).toBeNull();
     server.setExpectedExtensionVersion("9.9.9");
@@ -42,9 +42,8 @@ describe("ChatGptBridgeServer", () => {
 
   it("pairs once, rejects bad secrets and resolves commands", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
-    const port = 33000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const secret = await pairAutomatically(server, port);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
+    const secret = await pairAutomatically(server);
     expect((await readFile(join(dir, "secret"), "utf8")).trim()).toBe(secret);
     expect((await fetch(`http://127.0.0.1:${port}/v1/commands`)).status).toBe(401);
     const pending = server.request("status", {});
@@ -55,18 +54,18 @@ describe("ChatGptBridgeServer", () => {
   });
 
   it("removes timed-out commands before the browser can execute them", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 35000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const secret = await pairAutomatically(server, port);
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
+    const secret = await pairAutomatically(server);
     await expect(server.request("batch", { action: "delete" }, 10)).rejects.toThrow("timed out");
     const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     await expect(commands.json()).resolves.toEqual([]);
   });
 
   it("keeps a slow command alive while the extension reports progress heartbeats", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-")); const port = 35500 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const secret = await pairAutomatically(server, port);
+    const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
+    const secret = await pairAutomatically(server);
     const pending = server.request("list", {}, 40); // 40ms 预算，执行会拖到 150ms 以上
     const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     const [command] = await commands.json() as Array<{ requestId: string }>;
@@ -87,9 +86,9 @@ describe("ChatGptBridgeServer", () => {
   });
 
   it("serves authenticated local commands without marking the extension connected", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-local-")); const port = 36000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const secret = await pairAutomatically(server, port);
+    const dir = await mkdtemp(join(tmpdir(), "cm-local-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
+    const secret = await pairAutomatically(server);
     const seen: Array<{ type: string; payload: unknown }> = [];
     server.setLocalHandler(async (type, payload) => { seen.push({ type, payload }); return { echo: type, connected: server.state().connected };
     });
@@ -108,22 +107,22 @@ describe("ChatGptBridgeServer", () => {
   });
 
   it("exposes the loaded secret through secretText for endpoint discovery", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-secret-")); const port = 37000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server);
+    const dir = await mkdtemp(join(tmpdir(), "cm-secret-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server);
     const changes: Array<string | null> = [];
     server.onSecretChange((secret) => changes.push(secret));
-    await server.start();
+    await server.start(); const port = server.port();
     expect(server.secretText()).toBeNull();
     expect(changes).toEqual([null]);
-    const secret = await pairAutomatically(server, port);
+    const secret = await pairAutomatically(server);
     expect(server.secretText()).toBe(secret);
     expect(changes[changes.length - 1]).toBe(secret);
   });
 
   it("carries the hard-reload hint header only while the hint is active", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-hint-")); const port = 38000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const secret = await pairAutomatically(server, port);
+    const dir = await mkdtemp(join(tmpdir(), "cm-hint-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
+    const secret = await pairAutomatically(server);
     const headers = { Authorization: `Bearer ${secret}` };
     const url = `http://127.0.0.1:${port}/v1/commands`;
 
@@ -140,9 +139,9 @@ describe("ChatGptBridgeServer", () => {
   });
 
   it("remembers the extension's reported startup code hash from the poll", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "cm-hash-")); const port = 39000 + Math.floor(Math.random() * 500);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const secret = await pairAutomatically(server, port);
+    const dir = await mkdtemp(join(tmpdir(), "cm-hash-"));
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
+    const secret = await pairAutomatically(server);
     expect(server.reportedCodeHash()).toBeNull();
 
     const hash = "Ab12Cd34Ef56Gh78Ij00KlMnOpQrStUvWxYz-abc_-12";
@@ -180,9 +179,8 @@ describe("ConversationIndexStore", () => {
 
   it("holds the commands long-poll until a command is queued", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
-    const port = 33000 + Math.floor(Math.random() * 1000);
-    const server = new ChatGptBridgeServer(join(dir, "secret"), port); servers.push(server); await server.start();
-    const secret = await pairAutomatically(server, port);
+    const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
+    const secret = await pairAutomatically(server);
     const startedAt = Date.now();
     const poll = fetch(`http://127.0.0.1:${port}/v1/commands?wait=3`, { headers: { Authorization: `Bearer ${secret}` } }).then((response) => response.json() as Promise<Array<{ requestId: string }>>);
     server.request("list", { mode: "incremental", checkpoint: null }).catch(() => {});
