@@ -66,21 +66,24 @@ describe("ChatGptBridgeServer", () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
     const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
     const secret = await pairAutomatically(server);
-    const pending = server.request("list", {}, 40); // 40ms 预算，执行会拖到 150ms 以上
+    let settled = false;
+    // 200ms 预算；扩展每 25ms 报一次心跳、总执行 400ms >> 预算，验证"心跳刷新超时窗口"。
+    // settled 处理器在创建时同步挂载：拒绝永远不会落入无处理窗口（时序型 flaky 的另一根源）
+    const request = server.request("list", {}, 200);
+    const pending = request.then(() => { settled = true; }, () => { settled = true; });
     const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     const [command] = await commands.json() as Array<{ requestId: string }>;
-    // 扩展接管执行：每 15ms 报一次心跳，总执行时长 150ms >> 40ms 原始预算
+    // 心跳同样必须自带 catch：server 关闭后仍触发的 fire-and-forget fetch 会以
+    // unhandled rejection 击穿整个 vitest 进程
     const heartbeat = setInterval(() => {
-      void fetch(`http://127.0.0.1:${port}/v1/progress`, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify({ protocolVersion: 1, requestId: command!.requestId }) });
-    }, 15);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    let settled = false;
-    void pending.then(() => { settled = true; }, () => { settled = true; });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+      void fetch(`http://127.0.0.1:${port}/v1/progress`, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify({ protocolVersion: 1, requestId: command!.requestId }) }).catch(() => {});
+    }, 25);
+    await new Promise((resolve) => setTimeout(resolve, 400));
     expect(settled).toBe(false); // 心跳持续刷新窗口，命令不应被误杀
     clearInterval(heartbeat);
-    // 停止心跳后窗口到期 → 超时兜底，命令从队列移除
-    await expect(pending).rejects.toThrow("timed out");
+    // 停止心跳后窗口到期（≤200ms）→ 超时兜底，命令从队列移除
+    await expect(request).rejects.toThrow("timed out");
+    expect(settled).toBe(true);
     const after = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     await expect(after.json()).resolves.toEqual([]);
   });
