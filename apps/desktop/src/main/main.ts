@@ -10,6 +10,7 @@ import { CodexAppServer } from "@conversation-manager/codex-app-server-adapter";
 import { isValidVersionFormat } from "@conversation-manager/conversation-domain";
 import { discoverCodexCommands } from "./codex-discovery.js";
 import { syncExtensionFiles } from "./extension-sync.js";
+import { healLoadedExtensionFolders } from "./extension-heal.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
@@ -491,6 +492,12 @@ app.whenReady().then(async () => {
     const bundled = JSON.parse(await readFile(join(extensionDirectory(), "manifest.json"), "utf8")) as { version?: unknown };
     if (isValidVersionFormat(bundled.version)) bridge.setExpectedExtensionVersion(bundled.version);
   } catch {}
+  // 自愈：若 Chrome/Edge 加载的是旧目录的扩展，把最新文件直接写进该目录——
+  // 扩展下次轮询发现期望版本更新后自动 reload 即可拿到新代码，无需人工重载
+  try {
+    const browserUserDataDirs = [join(process.env.LOCALAPPDATA ?? "", "Google", "Chrome", "User Data"), join(process.env.LOCALAPPDATA ?? "", "Microsoft", "Edge", "User Data")].filter((dir) => dir.length > 0);
+    for (const healedPath of await healLoadedExtensionFolders(extensionDirectory(), browserUserDataDirs)) logInfo(`extension auto-heal: synced new files into loaded folder ${healedPath}`);
+  } catch (healError) { logWarn(`extension auto-heal failed: ${healError instanceof Error ? healError.message : String(healError)}`); }
   try { await bridge.start(); } catch (startError) { logWarn(`bridge start failed, continuing without bridge: ${startError instanceof Error ? startError.message : String(startError)}`); }
   await applyStartupUpdatePreferences();
   refreshUpdateMessage();
