@@ -9,7 +9,6 @@ import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 const PHASES = ["build", "typecheck", "test"];
-
 function workspaceGlobs(manifest) {
   const lines = manifest.split("\n").map((line) => line.trim());
   const start = lines.indexOf("packages:");
@@ -62,4 +61,12 @@ for (const phase of PHASES) {
     }
   }
 }
-console.log(`\n全部通过：${order.length} 个包 × ${PHASES.join(" / ")}`);
+
+// 根级 lint（与 CI 的第 4 步对齐）：放在最后，输出最短
+console.log("\n==== lint @ root ====");
+const lint = spawnSync("npm", ["run", "lint"], { cwd: root, shell: true, encoding: "utf8", env: process.env });
+if (lint.status !== 0) {
+  console.error(`${lint.stdout ?? ""}\n${lint.stderr ?? ""}`);
+  process.exit(1);
+}
+console.log(`\n全部通过：${order.length} 个包 × ${PHASES.join(" / ")} + 根级 lint`);

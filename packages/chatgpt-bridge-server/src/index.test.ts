@@ -70,7 +70,7 @@ describe("ChatGptBridgeServer", () => {
     // 200ms 预算；扩展每 25ms 报一次心跳、总执行 400ms >> 预算，验证"心跳刷新超时窗口"。
     // settled 处理器在创建时同步挂载：拒绝永远不会落入无处理窗口（时序型 flaky 的另一根源）
     const request = server.request("list", {}, 200);
-    const pending = request.then(() => { settled = true; }, () => { settled = true; });
+    request.then(() => { settled = true; }, () => { settled = true; });
     const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     const [command] = await commands.json() as Array<{ requestId: string }>;
     // 心跳同样必须自带 catch：server 关闭后仍触发的 fire-and-forget fetch 会以
@@ -114,7 +114,7 @@ describe("ChatGptBridgeServer", () => {
     const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server);
     const changes: Array<string | null> = [];
     server.onSecretChange((secret) => changes.push(secret));
-    await server.start(); const port = server.port();
+    await server.start();
     expect(server.secretText()).toBeNull();
     expect(changes).toEqual([null]);
     const secret = await pairAutomatically(server);
