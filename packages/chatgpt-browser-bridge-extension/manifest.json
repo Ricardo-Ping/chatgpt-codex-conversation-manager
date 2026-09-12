@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Conversation Manager Bridge",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "description": "Connects your signed-in ChatGPT browser session to Conversation Manager on this computer.",
   "permissions": ["storage", "tabs", "alarms", "scripting"],
   "host_permissions": ["https://chatgpt.com/*", "https://chat.openai.com/*", "http://127.0.0.1:32147/*"],
