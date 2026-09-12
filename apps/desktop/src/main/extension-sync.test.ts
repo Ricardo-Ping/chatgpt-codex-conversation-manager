@@ -19,7 +19,8 @@ describe("syncExtensionFiles", () => {
     const source = await seedSource();
     const target = await mkdtemp(join(tmpdir(), "cm-ext-dst-"));
     const synced = await syncExtensionFiles(source, target, FILES);
-    expect(synced).toBe(target);
+    expect(synced.targetDir).toBe(target);
+    expect(synced.skipped).toEqual([]);
     expect(await readFile(join(target, "manifest.json"), "utf8")).toBe('{"version":"0.7.2"}');
     expect(await readFile(join(target, "background.js"), "utf8")).toBe("// background");
   });
@@ -31,7 +32,8 @@ describe("syncExtensionFiles", () => {
     const manifest = join(target, "manifest.json");
     const before = (await stat(manifest)).mtimeMs;
     await new Promise((resolve) => setTimeout(resolve, 20));
-    await syncExtensionFiles(source, target, FILES);
+    const second = await syncExtensionFiles(source, target, FILES);
+    expect(second.skipped).toEqual([]);
     expect((await stat(manifest)).mtimeMs).toBe(before);
   });
 
@@ -39,8 +41,8 @@ describe("syncExtensionFiles", () => {
     const source = await seedSource();
     const target = await mkdtemp(join(tmpdir(), "cm-ext-dst-"));
     await syncExtensionFiles(source, target, FILES);
-    await writeFile(join(source, "manifest.json"), '{"version":"0.7.3"}');
+    await writeFile(join(source, "manifest.json"), '{"version":"0.7.4"}');
     await syncExtensionFiles(source, target, FILES);
-    expect(await readFile(join(target, "manifest.json"), "utf8")).toBe('{"version":"0.7.3"}');
+    expect(await readFile(join(target, "manifest.json"), "utf8")).toBe('{"version":"0.7.4"}');
   });
 });

@@ -489,7 +489,11 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "Conversation Manager", applicationVersion: app.getVersion(), credits: "ChatGPT · Codex · Ricardo-Ping", website: "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager" });
   logInfo(M().appStart(app.getVersion(), String(app.isPackaged)));
   // 把最新扩展同步到稳定目录（必须在读取期望版本与启动桥接之前完成）
-  try { extensionDirOverride = await syncExtensionFiles(bundledExtensionDirectory(), join(homedir(), ".conversation-manager", "extension")); } catch (syncError) { logWarn(`extension sync to stable dir failed, falling back to bundled dir: ${syncError instanceof Error ? syncError.message : String(syncError)}`); }
+  try {
+    const synced = await syncExtensionFiles(bundledExtensionDirectory(), join(homedir(), ".conversation-manager", "extension"));
+    extensionDirOverride = synced.targetDir;
+    if (synced.skipped.length) logWarn(`extension sync skipped locked files: ${synced.skipped.join(", ")}`);
+  } catch (syncError) { logWarn(`extension sync to stable dir failed, falling back to bundled dir: ${syncError instanceof Error ? syncError.message : String(syncError)}`); }
   try {
     const saved = JSON.parse(await readFile(join(userData, "codex-command.json"), "utf8")) as { command?: unknown };
     if (typeof saved.command === "string" && saved.command.length <= 1_000) {
