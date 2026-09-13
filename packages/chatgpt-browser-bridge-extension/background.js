@@ -153,6 +153,17 @@ async function relayJob(job, secret) {
     const tabs = await findChatGptTabs({ url: CHATGPT_TAB_PATTERNS });
     // 优先最近使用的标签页；被 Chrome 冻结/休眠的旧标签页可能永远不应答，最多尝试两个后快速失败
     const ordered = tabs.slice().sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0)).slice(0, 2);
+    // 浏览器内存节省程序会把久置的后台标签页"丢弃"（完全卸载页面）：对丢弃的标签页发消息
+    // 只能等满超时。自动 reload 丢弃的标签页（ChatGPT 页面刷新即恢复）并等它加载完成，
+    // 夜间/久置后的首次自动同步即可自愈，不需要用户手动唤醒。
+    for (const tab of ordered) {
+      if (!tab.discarded) continue;
+      try { await chrome.tabs.reload(tab.id); } catch {}
+      for (let waited = 0; waited < 10_000; waited += 500) {
+        try { const fresh = await chrome.tabs.get(tab.id); if (fresh.status === "complete") break; } catch { break; }
+        await wait(500);
+      }
+    }
     if (!ordered.length) {
       result = { ok: false, error: { code: "NO_CHATGPT_TAB", message: "请先在浏览器打开 ChatGPT / Please open chatgpt.com in your browser first", retryable: true } };
     } else {
