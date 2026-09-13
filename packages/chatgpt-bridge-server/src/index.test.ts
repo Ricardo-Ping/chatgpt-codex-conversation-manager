@@ -7,8 +7,22 @@ import { ChatGptBridgeServer, ConversationIndexStore, chooseCacheSyncMode } from
 const servers: ChatGptBridgeServer[] = [];
 afterEach(async () => { await Promise.all(servers.splice(0).map((server) => server.close())); });
 
+// 测试专用 fetch：瞬时网络错误（端口分配竞态、连接拒绝等重负载下的偶发问题）自动重试一次。
+// 只用于测试基础设施——产品代码路径不经过这里。
+const TRANSIENT = /bad port|fetch failed|ECONNREFUSED|EADDRNOTAVAIL|ETIMEDOUT/i;
+const rawFetch = globalThis.fetch.bind(globalThis);
+async function fetchRetry(url: string | URL, init?: RequestInit): Promise<Response> {
+  try { return await rawFetch(url, init); }
+  catch (error) {
+    const text = `${error instanceof Error ? error.message : ""} ${String((error as { cause?: { message?: string; code?: string } })?.cause?.message ?? "")} ${String((error as { cause?: { code?: string } })?.cause?.code ?? "")}`;
+    if (!TRANSIENT.test(text)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return rawFetch(url, init);
+  }
+}
+
 async function pairAutomatically(server: ChatGptBridgeServer): Promise<string> {
-  const response = await fetch(`http://127.0.0.1:${server.port()}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
+  const response = await fetchRetry(`http://127.0.0.1:${server.port()}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
   expect(response.status).toBe(200);
   const { secret } = await response.json() as { secret: string };
   return secret;
@@ -18,13 +32,13 @@ describe("ChatGptBridgeServer", () => {
   it("pairs with one extension click and never reissues the secret", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
     const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
-    const denied = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST" });
+    const denied = await fetchRetry(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST" });
     expect(denied.status).toBe(403);
-    const response = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
+    const response = await fetchRetry(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
     expect(response.status).toBe(200);
     const { secret } = await response.json() as { secret: string };
     expect((await readFile(join(dir, "secret"), "utf8")).trim()).toBe(secret);
-    const repeated = await fetch(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
+    const repeated = await fetchRetry(`http://127.0.0.1:${port}/v1/pair/auto`, { method: "POST", headers: { Origin: "chrome-extension://test-extension" } });
     expect(repeated.status).toBe(409);
     await expect(repeated.json()).resolves.toEqual({ error: "already_paired" });
   });
@@ -32,10 +46,10 @@ describe("ChatGptBridgeServer", () => {
   it("exposes the expected extension version header for self-reload", async () => {
     const dir = await mkdtemp(join(tmpdir(), "cm-bridge-"));
     const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
-    const withoutVersion = await fetch(`http://127.0.0.1:${port}/v1/health`);
+    const withoutVersion = await fetchRetry(`http://127.0.0.1:${port}/v1/health`);
     expect(withoutVersion.headers.get("x-expected-extension-version")).toBeNull();
     server.setExpectedExtensionVersion("9.9.9");
-    const health = await fetch(`http://127.0.0.1:${port}/v1/health`);
+    const health = await fetchRetry(`http://127.0.0.1:${port}/v1/health`);
     expect(health.headers.get("x-expected-extension-version")).toBe("9.9.9");
     expect(health.headers.get("access-control-expose-headers") ?? "").toContain("X-Expected-Extension-Version");
   });
@@ -45,11 +59,11 @@ describe("ChatGptBridgeServer", () => {
     const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
     const secret = await pairAutomatically(server);
     expect((await readFile(join(dir, "secret"), "utf8")).trim()).toBe(secret);
-    expect((await fetch(`http://127.0.0.1:${port}/v1/commands`)).status).toBe(401);
+    expect((await fetchRetry(`http://127.0.0.1:${port}/v1/commands`)).status).toBe(401);
     const pending = server.request("status", {});
-    const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    const commands = await fetchRetry(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     const [command] = await commands.json() as Array<{ requestId: string }>;
-    await fetch(`http://127.0.0.1:${port}/v1/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify({ protocolVersion: 1, requestId: command!.requestId, ok: true, payload: { loggedIn: true } }) });
+    await fetchRetry(`http://127.0.0.1:${port}/v1/results`, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify({ protocolVersion: 1, requestId: command!.requestId, ok: true, payload: { loggedIn: true } }) });
     await expect(pending).resolves.toMatchObject({ ok: true, payload: { loggedIn: true } });
   });
 
@@ -58,7 +72,7 @@ describe("ChatGptBridgeServer", () => {
     const server = new ChatGptBridgeServer(join(dir, "secret"), 0); servers.push(server); await server.start(); const port = server.port();
     const secret = await pairAutomatically(server);
     await expect(server.request("batch", { action: "delete" }, 10)).rejects.toThrow("timed out");
-    const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    const commands = await fetchRetry(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     await expect(commands.json()).resolves.toEqual([]);
   });
 
@@ -71,7 +85,7 @@ describe("ChatGptBridgeServer", () => {
     // settled 处理器在创建时同步挂载：拒绝永远不会落入无处理窗口（时序型 flaky 的另一根源）
     const request = server.request("list", {}, 200);
     request.then(() => { settled = true; }, () => { settled = true; });
-    const commands = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    const commands = await fetchRetry(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     const [command] = await commands.json() as Array<{ requestId: string }>;
     // 心跳同样必须自带 catch：server 关闭后仍触发的 fire-and-forget fetch 会以
     // unhandled rejection 击穿整个 vitest 进程
@@ -84,7 +98,7 @@ describe("ChatGptBridgeServer", () => {
     // 停止心跳后窗口到期（≤200ms）→ 超时兜底，命令从队列移除
     await expect(request).rejects.toThrow("timed out");
     expect(settled).toBe(true);
-    const after = await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
+    const after = await fetchRetry(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}` } });
     await expect(after.json()).resolves.toEqual([]);
   });
 
@@ -96,10 +110,10 @@ describe("ChatGptBridgeServer", () => {
     server.setLocalHandler(async (type, payload) => { seen.push({ type, payload }); return { echo: type, connected: server.state().connected };
     });
 
-    const denied = await fetch(`http://127.0.0.1:${port}/v1/local`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "chatgpt.search" }) });
+    const denied = await fetchRetry(`http://127.0.0.1:${port}/v1/local`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "chatgpt.search" }) });
     expect(denied.status).toBe(401);
 
-    const response = await fetch(`http://127.0.0.1:${port}/v1/local`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ type: "chatgpt.search", payload: { query: "sql" } }) });
+    const response = await fetchRetry(`http://127.0.0.1:${port}/v1/local`, { method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" }, body: JSON.stringify({ type: "chatgpt.search", payload: { query: "sql" } }) });
     expect(response.status).toBe(200);
     const body = await response.json() as { ok: boolean; result: { echo: string; connected: boolean } };
     expect(body.ok).toBe(true);
@@ -129,15 +143,15 @@ describe("ChatGptBridgeServer", () => {
     const headers = { Authorization: `Bearer ${secret}` };
     const url = `http://127.0.0.1:${port}/v1/commands`;
 
-    const withoutHint = await fetch(url, { headers });
+    const withoutHint = await fetchRetry(url, { headers });
     expect(withoutHint.headers.get("x-reload-extension")).toBeNull();
 
     server.setReloadHint(true);
-    const withHint = await fetch(url, { headers });
+    const withHint = await fetchRetry(url, { headers });
     expect(withHint.headers.get("x-reload-extension")).toBe("1");
 
     server.setReloadHint(false);
-    const cleared = await fetch(url, { headers });
+    const cleared = await fetchRetry(url, { headers });
     expect(cleared.headers.get("x-reload-extension")).toBeNull();
   });
 
@@ -148,15 +162,15 @@ describe("ChatGptBridgeServer", () => {
     expect(server.reportedCodeHash()).toBeNull();
 
     const hash = "Ab12Cd34Ef56Gh78Ij00KlMnOpQrStUvWxYz-abc_-12";
-    await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": hash } });
+    await fetchRetry(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": hash } });
     expect(server.reportedCodeHash()).toBe(hash);
 
     // 指纹计算失败的占位值也要原样透传，桌面端据此区分"旧到没有该功能"与"计算失败"
-    await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": "hash-unavailable" } });
+    await fetchRetry(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": "hash-unavailable" } });
     expect(server.reportedCodeHash()).toBe("hash-unavailable");
 
     // 非法格式不得覆盖上次的有效值
-    await fetch(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": "not a hash!" } });
+    await fetchRetry(`http://127.0.0.1:${port}/v1/commands`, { headers: { Authorization: `Bearer ${secret}`, "X-Extension-Code-Hash": "not a hash!" } });
     expect(server.reportedCodeHash()).toBe("hash-unavailable");
   });
 });

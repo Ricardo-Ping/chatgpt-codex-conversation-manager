@@ -96,6 +96,8 @@ const en: Record<string, string> = {
   "近 30 天": "30 days",
   "近 90 天": "90 days",
   "近 {n} 天新增（按平台）": "New in the last {n} days (by platform)",
+  "近 {n} 天新增（{platform}）": "New in the last {n} days ({platform})",
+  "按平台筛选": "Filter by platform",
   "新增 {n} 条（ChatGPT {a} · Codex {c}）· 活跃 {v} 条": "+{n} new (ChatGPT {a} · Codex {c}) · {v} active",
   "成就徽章": "Achievements",
   "已解锁 {n}/{total}": "{n} of {total} unlocked",

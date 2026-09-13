@@ -106,7 +106,7 @@ function summarize(records: StatRecord[]): StatsSummary {
   return { total: records.length, active: records.length - archived, archived, weekly, byPlatform, insights };
 }
 
-function buildTrend(records: StatRecord[], days: number, palette: ChartPalette): echarts.EChartsCoreOption {
+function buildTrend(records: StatRecord[], days: number, scope: PlatformScope, palette: ChartPalette): echarts.EChartsCoreOption {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   // 回退 (days-1) 天后重新对齐本地零点：跨夏令时减固定毫秒会让窗口起点偏移 1 小时
   const first = new Date(today.getTime() - (days - 1) * DAY_MS); first.setHours(0, 0, 0, 0);
@@ -129,15 +129,19 @@ function buildTrend(records: StatRecord[], days: number, palette: ChartPalette):
     if (offset < 0 || offset > days - 1) continue;
     if (record.platform === "chatgpt") chatgptSeries[offset] = (chatgptSeries[offset] ?? 0) + 1; else codexSeries[offset] = (codexSeries[offset] ?? 0) + 1;
   }
+  // 平台筛选只是对已有快照数据的重画，不需要任何重新统计
+  const single = scope === "all" ? null : scope;
   return {
     tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...chartTooltip(palette) },
-    legend: { top: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 8, textStyle: { color: palette.muted, fontSize: 12 } },
+    legend: single === null ? { top: 0, right: 0, icon: "roundRect", itemWidth: 12, itemHeight: 8, textStyle: { color: palette.muted, fontSize: 12 } } : { show: false },
     grid: { left: 34, right: 8, top: 34, bottom: 22 },
     xAxis: { type: "category", data: labels, axisLabel: { color: palette.muted, interval: labelInterval }, axisLine: { lineStyle: { color: palette.border } }, axisTick: { show: false } },
     yAxis: { type: "value", minInterval: 1, axisLabel: { color: palette.muted }, splitLine: { lineStyle: { color: palette.split } } },
-    series: [
+    series: single === null ? [
       { name: "ChatGPT", type: "bar", stack: "new", barMaxWidth: 16, itemStyle: { color: palette.chat }, data: chatgptSeries },
       { name: "Codex", type: "bar", stack: "new", barMaxWidth: 16, itemStyle: { color: palette.codex, borderRadius: [3, 3, 0, 0] }, data: codexSeries }
+    ] : [
+      { name: single === "chatgpt" ? "ChatGPT" : "Codex", type: "bar", barMaxWidth: 20, itemStyle: { color: single === "chatgpt" ? palette.chat : palette.codex, borderRadius: [3, 3, 0, 0] }, data: single === "chatgpt" ? chatgptSeries : codexSeries }
     ]
   };
 }
@@ -233,6 +237,8 @@ function buildHeatmap(daily: DailyStatsFile | null, computed: Record<string, Dai
 
 type TrendRange = "7" | "30" | "90";
 const TREND_RANGES: Array<[TrendRange, string]> = [["7", "近 7 天"], ["30", "近 30 天"], ["90", "近 90 天"]];
+type PlatformScope = "all" | Platform;
+const PLATFORM_SCOPES: Array<[PlatformScope, string]> = [["all", "全部"], ["chatgpt", "ChatGPT"], ["codex", "Codex"]];
 const HEAT_WINDOWS: Array<[HeatWindow, string]> = [["12m", "近 12 个月"], ["year", "今年"], ["last-year", "去年"]];
 
 // 成就徽章的展示元数据；判定阈值与指标在 stats-model#computeBadges，名称/描述在此处走 i18n
@@ -256,6 +262,7 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
   const [snapshot, setSnapshot] = useState<StatsSnapshot | null>(snapshotCache);
   const [loading, setLoading] = useState(false);
   const [trendRange, setTrendRange] = useState<TrendRange>("30");
+  const [trendScope, setTrendScope] = useState<PlatformScope>("all");
   const [heatWindow, setHeatWindow] = useState<HeatWindow>("12m");
   const refresh = useCallback(() => {
     setLoading(true);
@@ -266,7 +273,7 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
   const palette = useMemo(chartPalette, [dark]);
   const summary = useMemo(() => summarize(snapshot?.records ?? []), [snapshot]);
   const computedBuckets = useMemo(() => buildDailyBuckets(snapshot?.records ?? []), [snapshot]);
-  const trend = useMemo(() => buildTrend(snapshot?.records ?? [], Number(trendRange), palette), [snapshot, trendRange, palette]);
+  const trend = useMemo(() => buildTrend(snapshot?.records ?? [], Number(trendRange), trendScope, palette), [snapshot, trendRange, trendScope, palette]);
   const share = useMemo(() => buildShare(summary, palette), [summary, palette]);
   const projectBars = useMemo(() => snapshot ? buildProjectBars(snapshot, 8, palette) : null, [snapshot, palette]);
   const heatmap = useMemo(() => buildHeatmap(snapshot?.daily ?? null, computedBuckets, heatWindow, palette), [snapshot, computedBuckets, heatWindow, palette]);
@@ -351,9 +358,10 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
     </article>
 
     <article className="stats-card">
-      <h2>{t("近 {n} 天新增（按平台）", { n: Number(trendRange) })}
+      <h2>{trendScope === "all" ? t("近 {n} 天新增（按平台）", { n: Number(trendRange) }) : t("近 {n} 天新增（{platform}）", { n: Number(trendRange), platform: trendScope === "chatgpt" ? "ChatGPT" : "Codex" })}
         <span className="head-extra">
-          <Segmented<TrendRange> value={trendRange} options={TREND_RANGES.map(([value, label]) => [value, t(label)] as [TrendRange, string])} onChange={setTrendRange} aria-label={t("近 {n} 天新增（按平台）", { n: Number(trendRange) })} />
+          <Segmented<PlatformScope> value={trendScope} options={PLATFORM_SCOPES.map(([value, label]) => [value, value === "all" ? t(label) : label] as [PlatformScope, string])} onChange={setTrendScope} aria-label={t("按平台筛选")} />
+          <Segmented<TrendRange> value={trendRange} options={TREND_RANGES.map(([value, label]) => [value, t(label)] as [TrendRange, string])} onChange={setTrendRange} aria-label={t("按平台筛选")} />
         </span>
       </h2>
       {hasData ? <Chart option={trend} height={260} /> : <EmptyChart />}
