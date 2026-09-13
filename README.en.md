@@ -8,6 +8,20 @@ Conversation Manager is a **local desktop app for finding, filtering, organizing
 
 Double-click any conversation to read its full content in-app, with Markdown tables, syntax-highlighted code in 18 languages, and images. You can also hand it back to the official web app any time, or open it directly in the ChatGPT/Codex desktop client to keep working.
 
+## Screenshots
+
+**ChatGPT conversations**: search & filter, double-click to read the full thread (Markdown / code highlighting / images), and batch-organize with multi-select.
+
+![ChatGPT conversations and reading panel](docs/screenshots/chatgpt-chats.png)
+
+**Codex tasks**: connects to the App Server built into the desktop client automatically, grouped by project folder, with batch export and migration.
+
+![Codex task management](docs/screenshots/codex-tasks.png)
+
+**Insights**: a GitHub-style conversation heatmap, achievement badges, and daily trends — all computed from local data.
+
+![Stats insights: heatmap and achievement badges](docs/screenshots/stats-insights.png)
+
 ## Features
 
 ### Find & Filter
@@ -32,6 +46,13 @@ Double-click any conversation to read its full content in-app, with Markdown tab
 
 - Only a minimal local index (including project membership) is stored; cached records show instantly at startup. The visible view checks incrementally every 2 minutes and performs a full calibration at least every 6 hours; records deleted on the server are removed locally during full calibration.
 - “Full refresh” in the toolbar starts an immediate calibration at any time.
+
+### Insights
+
+- **Conversation heatmap**: a GitHub Contribution Graph-style calendar with 12 months / this year / last year views, plus totals, longest streak, busiest day, and daily average.
+- **Achievement badges**: eight locally-judged milestone badges (conversation totals, usage streaks, night-owl hours, and more). Once earned they are kept forever — clearing the cache never takes them back.
+- **Daily trends**: new conversations over the last 7 / 30 / 90 days, stacked by platform or filtered to ChatGPT / Codex alone; platform share and top projects at a glance.
+- Dual-layer data: heatmap = live recompute from the cache index ∪ a local daily-count log (`stats-daily.json`, counts only, never content), merged per-day with max — historic peaks survive cache clears and conversation deletion.
 
 ### Export & Migration
 
