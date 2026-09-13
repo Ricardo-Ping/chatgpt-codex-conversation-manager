@@ -211,10 +211,13 @@ function buildHeatmap(daily: DailyStatsFile | null, computed: Record<string, Dai
       ...chartTooltip(palette)
     },
     calendar: {
-      top: 22, left: 30, right: 8,
-      cellSize: ["auto", 13],
+      // GitHub 风格：正方形格子、整体水平居中、隐藏月份分隔竖线（ECharts 默认的阶梯线很丑）——
+      // 月份只靠顶部标签区分，格子间隙由 itemStyle 边框形成
+      top: 26, left: "center",
+      cellSize: [13, 13],
       range: [startLabel, endLabel],
-      itemStyle: { color: palette.heat.empty, borderWidth: 2.5, borderColor: palette.surface, borderRadius: 3 },
+      splitLine: { show: false },
+      itemStyle: { color: palette.heat.empty, borderWidth: 2, borderColor: palette.surface, borderRadius: 3 },
       dayLabel: { color: palette.muted, fontSize: 10, firstDay: 1, nameMap: ["", t("一"), "", t("三"), "", t("五"), ""] },
       monthLabel: { color: palette.muted, fontSize: 10 },
       yearLabel: { show: false }
@@ -317,7 +320,7 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
           <span className="heat-legend" title={`${t("少")} → ${t("多")}`}>{t("少")}<i></i><i></i><i></i><i></i><i></i>{t("多")}</span>
         </span>
       </h2>
-      {hasData ? <Chart option={heatmap} height={186} /> : <EmptyChart />}
+      {hasData ? <Chart option={heatmap} height={158} /> : <EmptyChart />}
       {hasData && <div className="heat-stats">
         <span>{t("总计")}<b>{formatCount(heatStats.total)}</b></span>
         <span>{t("最长连续")}<b>{t("{n} 天", { n: heatStats.streak })}</b></span>
