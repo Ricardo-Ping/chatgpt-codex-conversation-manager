@@ -143,7 +143,9 @@ async function startPolling() {
 }
 async function relayJob(job, secret) {
   beginKeepAlive();
-  let result;
+  // 必须初始化为 null：所有标签页抛错时 result 保持未赋值，靠 `result === null` 判定
+  // 并填入 UNRESPONSIVE 指引；undefined 会绕过判定，把缺失 ok 字段的结果上报给桌面端
+  let result = null;
   // 命令活性心跳：执行期间每 15 秒向桌面端报告"命令仍在推进"。
   // 桌面端据此刷新超时窗口——完整校准/项目多时的慢同步不再被固定预算误杀；
   // 命令结束或 SW 卡死时心跳停止，桌面端窗口到期才超时兜底。
@@ -153,15 +155,14 @@ async function relayJob(job, secret) {
     const tabs = await findChatGptTabs({ url: CHATGPT_TAB_PATTERNS });
     // 优先最近使用的标签页；被 Chrome 冻结/休眠的旧标签页可能永远不应答，最多尝试两个后快速失败
     const ordered = tabs.slice().sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0)).slice(0, 2);
-    // 浏览器内存节省程序会把久置的后台标签页"丢弃"（完全卸载页面）：对丢弃的标签页发消息
-    // 只能等满超时。自动 reload 丢弃的标签页（ChatGPT 页面刷新即恢复）并等它加载完成，
-    // 夜间/久置后的首次自动同步即可自愈，不需要用户手动唤醒。
+    // 自愈路径（对"减少人工操作"至关重要）：
+    // 1. 丢弃（discarded）：内存节省程序完全卸载了页面，直接 reload；
+    // 2. 孤儿化：扩展重载/更新后，旧页面里的内容脚本与扩展断开（ping 无应答）。
+    //    两者的恢复方式相同——reload 页面生成全新的内容脚本。自动执行，无需用户手动刷新。
+    //    前台孤儿标签页（用户可能正在输入）同样自动刷新：ChatGPT 会从 URL 恢复会话并保留草稿。
     for (const tab of ordered) {
-      if (!tab.discarded) continue;
-      try { await chrome.tabs.reload(tab.id); } catch {}
-      for (let waited = 0; waited < 10_000; waited += 500) {
-        try { const fresh = await chrome.tabs.get(tab.id); if (fresh.status === "complete") break; } catch { break; }
-        await wait(500);
+      if (tab.discarded || !(await pingTab(tab.id))) {
+        await reloadAndWait(tab.id);
       }
     }
     if (!ordered.length) {
@@ -172,13 +173,35 @@ async function relayJob(job, secret) {
         try { result = await sendToChatGptTab(tab.id, { target: "conversation-manager-content", ...job }); break; }
         catch (error) { lastError = error; }
       }
-      if (result === null) result = { ok: false, error: { code: "CHATGPT_TAB_UNRESPONSIVE", message: (lastError && lastError.message) || "ChatGPT 页面长时间无响应，请刷新 ChatGPT 标签页后重试 / The ChatGPT tab is not responding — refresh it and retry", retryable: true } };
+      if (result === null) {
+        const stale = lastError && /receiving end does not exist|could not establish connection/i.test(lastError.message || String(lastError));
+        result = { ok: false, error: { code: "CHATGPT_TAB_UNRESPONSIVE", retryable: true, message: stale
+          ? "扩展更新后此 ChatGPT 标签页尚未刷新，请刷新该标签页以恢复同步 / The extension was updated — refresh this ChatGPT tab to restore sync"
+          : (lastError && lastError.message) || "ChatGPT 页面长时间无响应，请刷新 ChatGPT 标签页后重试 / The ChatGPT tab is not responding — refresh it and retry" } };
+      }
     }
   } catch (error) { result = { ok: false, error: { code: "INTERNAL_ERROR", message: error.message || String(error), retryable: true } }; }
   clearInterval(heartbeat);
   try { await reportResult(job, secret, result); } finally { endKeepAlive(); }
 }
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// 内容脚本存活探测：孤儿化/被丢弃的标签页不应答（false）。1.5 秒兜底防止对冻结标签页的发消息无限等待。
+async function pingTab(tabId) {
+  try {
+    return await Promise.race([
+      chrome.tabs.sendMessage(tabId, { target: "conversation-manager-content", type: "ping" }).then(() => true, () => false),
+      wait(1500).then(() => false)
+    ]);
+  } catch { return false; }
+}
+// reload 并等待页面加载完成（最多 10 秒），保证随后的命令发往已就绪的内容脚本
+async function reloadAndWait(tabId) {
+  try { await chrome.tabs.reload(tabId); } catch {}
+  for (let waited = 0; waited < 10_000; waited += 500) {
+    try { const fresh = await chrome.tabs.get(tabId); if (fresh.status === "complete") return; } catch { return; }
+    await wait(500);
+  }
+}
 let relayQueue = Promise.resolve();
 let fastQueue = Promise.resolve();
 // 批量变更并入慢队列：写操作与长同步错峰，避免在同一 ChatGPT 页面并发争用触发 429；
@@ -230,4 +253,4 @@ async function sendToChatGptTab(tabId, message) {
 
 void startPolling();
 
-if (typeof module !== "undefined" && module?.exports) module.exports = { sendToChatGptTab, extensionCodeHash };
+if (typeof module !== "undefined" && module?.exports) module.exports = { sendToChatGptTab, extensionCodeHash, relayJob };
