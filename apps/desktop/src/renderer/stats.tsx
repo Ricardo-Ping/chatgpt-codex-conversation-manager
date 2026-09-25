@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { echarts, chartPalette, chartTooltip, type ChartPalette } from "./echarts.js";
 import { relativeTime } from "./conversation-viewer.js";
+import { Chart } from "./chart.js";
 import { Segmented } from "./segmented.js";
+import { CodexUsageCard } from "./codex-usage.js";
 import { buildDailyBuckets, heatRange, heatSeries, heatSummary, heatLevels, dateKey, allTimeStreak, countLateNight, computeBadges, mergeNewCounts, type HeatRecord, type HeatWindow } from "./stats-model.js";
 import type { DailyBucket, DailyStatsFile } from "./global.d.js";
 import { t } from "./strings.js";
@@ -27,20 +29,6 @@ function useDarkMode(): boolean {
     return () => query.removeEventListener("change", onChange);
   }, []);
   return dark;
-}
-
-function Chart({ option, height }: { option: echarts.EChartsCoreOption; height: number }) {
-  const boxRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<echarts.ECharts | null>(null);
-  useEffect(() => {
-    const chart = echarts.init(boxRef.current!);
-    chartRef.current = chart;
-    const observer = new ResizeObserver(() => chart.resize());
-    observer.observe(boxRef.current!);
-    return () => { observer.disconnect(); chart.dispose(); chartRef.current = null; };
-  }, []);
-  useEffect(() => { chartRef.current?.setOption(option, true); }, [option]);
-  return <div ref={boxRef} style={{ height }} />;
 }
 
 async function gatherSnapshot(): Promise<StatsSnapshot> {
@@ -264,8 +252,11 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
   const [trendRange, setTrendRange] = useState<TrendRange>("30");
   const [trendScope, setTrendScope] = useState<PlatformScope>("all");
   const [heatWindow, setHeatWindow] = useState<HeatWindow>("12m");
+  // Codex 用量卡片自带加载逻辑；「刷新统计」通过递增 signal 触发它重扫
+  const [usageSignal, setUsageSignal] = useState(0);
   const refresh = useCallback(() => {
     setLoading(true);
+    setUsageSignal((signal) => signal + 1);
     void gatherSnapshot().then((next) => { snapshotCache = next; setSnapshot(next); }).catch(() => {}).finally(() => setLoading(false));
   }, []);
   useEffect(() => { if (!snapshotCache) refresh(); }, [refresh]);
@@ -319,6 +310,8 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
       <article className="kpi-card"><strong>{formatCount(summary.archived)}</strong><span>{t("已归档")}</span></article>
       <article className="kpi-card"><strong>{formatCount(summary.weekly)}</strong><span>{t("本周新增（7 天）")}</span></article>
     </div>
+
+    <CodexUsageCard palette={palette} refreshSignal={usageSignal} />
 
     <article className="stats-card">
       <h2>{t("会话热力图")}

@@ -18,7 +18,7 @@ Conversation Manager 是一款面向 ChatGPT 与 Codex 的**本地桌面会话�
 
 ![Codex 任务管理](docs/screenshots/codex-tasks.png)
 
-**统计洞察**：GitHub 风格会话热力图、成就徽章与每日趋势，全部基于本地数据计算。
+**统计洞察**：GitHub 风格会话热力图、成就徽章、每日趋势与 Codex 真实 Token 用量统计，全部基于本地数据计算。
 
 ![统计洞察：热力图与成就徽章](docs/screenshots/stats-insights.png)
 
@@ -41,6 +41,7 @@ Conversation Manager 是一款面向 ChatGPT 与 Codex 的**本地桌面会话�
 - 默认保护置顶会话、当前会话与运行中的 Codex 任务。
 - 项目管理：ChatGPT「工作」视图与 Codex 任务按项目文件夹分组；右键会话即可加入或移出项目，操作实时同步回 ChatGPT / Codex；Codex 按工作目录分组的会话可移入「非项目任务」并可恢复。
 - ChatGPT 区分「聊天」与「项目工作」：项目相关会话默认从聊天列表隐藏，只在项目工作视图管理。
+- Codex 任务行内嵌会话元信息：显示实例（工作目录）与中段省略的会话 ID，一键复制完整 ID、打开会话日志文件或所在文件夹；右侧徽标实时展示该会话文件的 Token 用量（输入 / 输出，悬停查看缓存与请求明细）。
 
 ### 缓存与同步
 
@@ -52,6 +53,7 @@ Conversation Manager 是一款面向 ChatGPT 与 Codex 的**本地桌面会话�
 - **会话热力图**：GitHub Contribution Graph 风格的日历热力图，支持近 12 个月 / 今年 / 去年切换，头部汇总总量、最长连续天数、最活跃的一天与日均。
 - **成就徽章**：8 枚纯本地判定的里程碑徽章（累计对话数、连续使用天数、深夜攻坚等），一次获得永久保留，清空缓存也不会收回。
 - **每日趋势**：近 7 / 30 / 90 天新增数据按平台堆叠展示，可单独查看 ChatGPT 或 Codex；平台占比与项目 Top 8 一屏总览。
+- **Codex 会话用量**：增量扫描本机 `~/.codex` 的会话日志（rollout JSONL），按每次请求增量汇总真实的输入 / 缓存输入 / 输出 Tokens、请求数与估算费用；支持近 7 / 30 / 90 天与按实例（工作目录）筛选，附按模型、按实例、按日期三张明细表。只读取 token 计数事件、不读会话正文，mtime 未变的文件走本地缓存，重新扫描近乎零开销；费用按公开 API 价格估算，仅作参考。
 - 双层数据设计：热力图 = 缓存索引实时回算 ∪ 本地每日计数日志（`stats-daily.json`，只存计数不存内容）逐日取最大值——清空缓存或删除会话后，历史峰值仍然保留。
 
 ### 导出与迁移
@@ -81,7 +83,7 @@ ChatGPT 通过配套 Chrome/Edge 扩展复用浏览器中已有的登录状态�
 
 ### Codex
 
-OpenAI 的 Windows 桌面客户端虽然以 `ChatGPT.exe` 运行、并在同一应用中提供 ChatGPT 与 Codex，但公开的 `codex app-server` 只提供 Codex 任务接口，不提供 ChatGPT 云端聊天列表或管理接口。Conversation Manager 会自动查找并连接这个内置后端，不要求再次登录，也不读取 `auth.json`、会话 JSONL 或状态数据库。
+OpenAI 的 Windows 桌面客户端虽然以 `ChatGPT.exe` 运行、并在同一应用中提供 ChatGPT 与 Codex，但公开的 `codex app-server` 只提供 Codex 任务接口，不提供 ChatGPT 云端聊天列表或管理接口。Conversation Manager 会自动查找并连接这个内置后端，不要求再次登录，也不读取 `auth.json` 或状态数据库。统计页的 Codex 会话用量是唯一例外：它会增量读取本机会话日志（JSONL）中的 token 计数事件，用于汇总真实用量，同样不读会话正文。
 
 只有自动检测失败时，设置页才显示手动选择 `codex.exe`、`codex.cmd` 或 `codex.bat` 的兜底入口。Codex 任务优先按项目 ID 归入可折叠的项目文件夹；桌面端为未挂项目会话创建的临时目录会被识别并归入「非项目任务」，固定显示在所有项目文件夹之前。ChatGPT 中的项目工作会话默认不出现在聊天列表，可通过工具栏的「工作」视图查看。
 
@@ -148,14 +150,14 @@ pnpm package:mac
 `curl` 下载的文件不携带隔离标记，解压后可直接打开：
 
 ```bash
-curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.10/Conversation-Manager-0.7.10-mac-arm64.zip"
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.11/Conversation-Manager-0.7.11-mac-arm64.zip"
 ```
 
 - 加载浏览器扩展后 30 秒内自动配对；`thread/read` 内容读取需要在 chatgpt.com 页面打开的状态下使用。
 
 ## 已知限制
 
-- `v0.7.10` 支持 Windows x64 与 macOS（Apple Silicon），均支持应用内自动更新；Windows 便携版与 macOS 因未做 Apple 签名，自动更新采用下载校验后原地换包的方式实现。
+- `v0.7.11` 支持 Windows x64 与 macOS（Apple Silicon），均支持应用内自动更新；Windows 便携版与 macOS 因未做 Apple 签名，自动更新采用下载校验后原地换包的方式实现。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
 - Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 

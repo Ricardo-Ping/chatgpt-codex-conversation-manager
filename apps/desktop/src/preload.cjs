@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
       exportSessions: (payload) => ipcRenderer.invoke("codex:export", payload),
     exportSessionsArchive: () => ipcRenderer.invoke("codex:export-sessions-archive"),
     importSessionsArchive: () => ipcRenderer.invoke("codex:import-sessions-archive"),
+    threadUsage: (payload) => ipcRenderer.invoke("codex:thread-usage", payload),
+    openSessionFile: (payload) => ipcRenderer.invoke("codex:open-session-file", payload),
     onArchiveProgress: (callback) => { if (typeof callback !== "function") return () => {}; const listener = (_event, progress) => callback(progress); ipcRenderer.on("codex:archive-progress", listener); return () => ipcRenderer.removeListener("codex:archive-progress", listener); }
   }),
   logs: Object.freeze({
@@ -63,7 +65,8 @@ contextBridge.exposeInMainWorld("conversationManager", Object.freeze({
   }),
   stats: Object.freeze({
     daily: (buckets) => ipcRenderer.invoke("stats:daily", buckets),
-    badges: (awards) => ipcRenderer.invoke("stats:badges", awards)
+    badges: (awards) => ipcRenderer.invoke("stats:badges", awards),
+    codexUsage: (payload) => ipcRenderer.invoke("stats:codex-usage", payload)
   }),
   updates: Object.freeze({
     getState: () => ipcRenderer.invoke("update:get-state"), setAutoUpdate: (enabled) => ipcRenderer.invoke("update:set-auto", enabled), check: () => ipcRenderer.invoke("update:check"), download: () => ipcRenderer.invoke("update:download"), install: () => ipcRenderer.invoke("update:install"), openRelease: () => ipcRenderer.invoke("update:open-release"),

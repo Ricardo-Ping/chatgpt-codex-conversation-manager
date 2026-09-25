@@ -346,3 +346,52 @@ button { cursor: pointer; }
 .badge.locked .badge-icon { filter: grayscale(1); opacity: .55; }
 .badge.locked .badge-text strong { color: var(--text-muted); }
 @media (max-width: 1100px) { .badge-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* Codex 会话用量：指标瓦片 + 趋势折线 + 三张明细表 */
+.usage-card h2 { flex-wrap: wrap; row-gap: 8px; }
+.usage-sub { margin: -4px 0 14px; color: var(--text-muted); font-size: 12.5px; line-height: 1.65; }
+.usage-sub .usage-status { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.usage-card.busy .usage-status { animation: pulse 1.6s ease-in-out infinite; }
+.usage-tiles { display: grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.usage-tile { display: flex; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid var(--border-card); border-radius: 13px; background: var(--surface); min-width: 0; }
+.usage-tile-icon { width: 34px; height: 34px; flex: none; border-radius: 10px; display: grid; place-items: center; }
+.usage-tile-icon svg { width: 17px; height: 17px; display: block; }
+.usage-tile-body { display: grid; gap: 1px; min-width: 0; }
+.usage-tile-body strong { font-size: 19px; color: var(--heading); letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage-tile-body span { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+.usage-chart { margin-bottom: 14px; }
+.usage-tables { margin-bottom: 14px; }
+.usage-table-wrap { min-width: 0; padding: 13px 15px 10px; background: var(--surface); border: 1px solid var(--border-card); border-radius: 13px; }
+.usage-table-wrap h3 { margin: 0 0 8px; font-size: 13px; color: var(--heading); }
+.usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.usage-table th { padding: 4px 8px 6px; border-bottom: 1px solid var(--border); text-align: right; color: var(--text-faint); font-weight: 600; font-size: 11px; white-space: nowrap; }
+.usage-table th.usage-name { text-align: left; }
+.usage-table td { padding: 7px 8px; border-bottom: 1px solid var(--border-soft); text-align: right; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-table tbody tr:last-child td { border-bottom: 0; }
+.usage-table td.usage-name { text-align: left; max-width: 170px; overflow: hidden; text-overflow: ellipsis; color: var(--heading); font-weight: 600; }
+.usage-table-wrap.models .usage-table td.usage-name { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 12px; }
+.usage-total span { display: block; color: var(--heading); font-weight: 600; }
+.usage-total i { display: block; height: 3px; margin-top: 4px; border-radius: 2px; background: var(--heat-empty); overflow: hidden; }
+.usage-total i b { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--brand-3), var(--brand)); }
+.usage-table-empty { margin: 6px 0 4px; color: var(--text-faint); font-size: 12.5px; }
+.usage-table-wrap.scroll { max-height: 336px; overflow: auto; }
+.usage-table-wrap.scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.usage-instance { max-width: 170px; border: 1px solid var(--border-strong); background: var(--surface-input); color: var(--text-sub); border-radius: 10px; padding: 7px 9px; font-size: 12.5px; }
+.usage-rescan { border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 10px; padding: 7px 12px; font-size: 12.5px; font-weight: 600; }
+.usage-rescan:hover:not(:disabled) { border-color: var(--brand-glow); color: var(--brand-text); }
+.usage-rescan:disabled { opacity: .55; cursor: default; }
+@media (max-width: 1500px) { .usage-tiles { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1100px) { .usage-tiles { grid-template-columns: repeat(2, 1fr); } }
+
+/* Codex 任务行：实例 / 会话 ID 元信息行 + 右侧用量徽标与文件操作 */
+.row:has(.row-side) { grid-template-columns: 42px minmax(240px, 1fr) auto; }
+.row-meta { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.row-instance { color: var(--text-muted); flex: none; }
+.row-session-id { min-width: 0; flex: 0 1 auto; font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
+.row-side { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 2px; min-width: 0; }
+.row-side time { padding-top: 0; }
+.row-actions { display: inline-flex; gap: 2px; flex: none; }
+.row-action { width: 26px; height: 26px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-muted); display: grid; place-items: center; padding: 0; }
+.row-action:hover { background: var(--row-hover); color: var(--brand-text); border-color: var(--border-soft); }
+.row-action svg { width: 14px; height: 14px; display: block; }
+.usage-pill { flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; background: color-mix(in srgb, var(--chart-codex) 12%, transparent); color: var(--chart-codex); border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }

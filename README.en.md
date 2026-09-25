@@ -18,7 +18,7 @@ Double-click any conversation to read its full content in-app, with Markdown tab
 
 ![Codex task management](docs/screenshots/codex-tasks.png)
 
-**Insights**: a GitHub-style conversation heatmap, achievement badges, and daily trends — all computed from local data.
+**Insights**: a GitHub-style conversation heatmap, achievement badges, daily trends, and real Codex token-usage statistics — all computed from local data.
 
 ![Stats insights: heatmap and achievement badges](docs/screenshots/stats-insights.png)
 
@@ -41,6 +41,7 @@ Double-click any conversation to read its full content in-app, with Markdown tab
 - Pinned chats, the current chat, and running Codex tasks are protected by default.
 - Project management: ChatGPT “Work” and Codex tasks are grouped by project folder; right-click any conversation to move it into or out of a project, synced back to ChatGPT / Codex. Codex directory-grouped tasks can be moved to “Non-project tasks” and restored.
 - ChatGPT distinguishes chat from project work: project conversations are hidden from the chat list by default and managed from the Work view.
+- Codex task rows embed session metadata: the instance (working directory) and a middle-truncated session ID, with one-click copy of the full ID, plus buttons to open the session log file or its folder. A badge on the right shows the rollout file's live token usage (input / output — hover for cached tokens and request counts).
 
 ### Cache & Sync
 
@@ -52,6 +53,7 @@ Double-click any conversation to read its full content in-app, with Markdown tab
 - **Conversation heatmap**: a GitHub Contribution Graph-style calendar with 12 months / this year / last year views, plus totals, longest streak, busiest day, and daily average.
 - **Achievement badges**: eight locally-judged milestone badges (conversation totals, usage streaks, night-owl hours, and more). Once earned they are kept forever — clearing the cache never takes them back.
 - **Daily trends**: new conversations over the last 7 / 30 / 90 days, stacked by platform or filtered to ChatGPT / Codex alone; platform share and top projects at a glance.
+- **Codex token usage**: incrementally scans the local `~/.codex` session logs (rollout JSONL) and aggregates real input / cached-input / output tokens, request counts, and an estimated cost per request. Filter by the last 7 / 30 / 90 days or by instance (working directory), with detailed tables by model, instance, and date. Only token-count events are read — never message bodies; unchanged files are served from a local cache, so rescans are nearly free. Costs are estimated from public API prices, for reference only.
 - Dual-layer data: heatmap = live recompute from the cache index ∪ a local daily-count log (`stats-daily.json`, counts only, never content), merged per-day with max — historic peaks survive cache clears and conversation deletion.
 
 ### Export & Migration
@@ -81,7 +83,7 @@ Without a signed-in ChatGPT session, cloud conversations cannot be read. When th
 
 ### Codex
 
-OpenAI’s Windows desktop client runs as `ChatGPT.exe` and offers both ChatGPT and Codex in one app, but its public `codex app-server` exposes Codex tasks only — it does not provide ChatGPT cloud chat lists or management. Conversation Manager automatically discovers and connects to this built-in backend: no second sign-in, and it never reads `auth.json`, session JSONL files, or state databases.
+OpenAI’s Windows desktop client runs as `ChatGPT.exe` and offers both ChatGPT and Codex in one app, but its public `codex app-server` exposes Codex tasks only — it does not provide ChatGPT cloud chat lists or management. Conversation Manager automatically discovers and connects to this built-in backend: no second sign-in, and it never reads `auth.json` or state databases. The one exception is the Codex token-usage card on the Stats page, which incrementally reads token-count events from the local session logs (JSONL) to aggregate real usage — message bodies are still never read.
 
 Manual selection of `codex.exe`, `codex.cmd`, or `codex.bat` appears in Settings only as a fallback when auto-detection fails. Codex tasks are grouped into collapsible project folders by project ID first; scratch directories that the desktop client creates for unassigned sessions are recognized and pinned under “Non-project tasks” above all project folders. ChatGPT project work stays out of the chat list and is available through the “Work” toggle.
 
@@ -148,14 +150,14 @@ Download `Conversation-Manager-x.y.z-mac-arm64.zip`, extract it, then right-clic
 Files downloaded with `curl` carry no quarantine flag and open directly:
 
 ```bash
-curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.10/Conversation-Manager-0.7.10-mac-arm64.zip"
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.11/Conversation-Manager-0.7.11-mac-arm64.zip"
 ```
 
 - Load the companion browser extension and it auto-pairs within 30 seconds; `thread/read` export requires an open chatgpt.com tab.
 
 ## Current Limits
 
-- `v0.7.10` supports Windows x64 and macOS (Apple Silicon), both with in-app auto-update; the Windows portable build and macOS use a download-verified in-place swap because they are not signed.
+- `v0.7.11` supports Windows x64 and macOS (Apple Silicon), both with in-app auto-update; the Windows portable build and macOS use a download-verified in-place swap because they are not signed.
 - The companion extension is distributed as a Release ZIP; it is not yet on the browser stores.
 - Firefox, and direct access to the ChatGPT desktop client's private chat database, are not supported yet.
 

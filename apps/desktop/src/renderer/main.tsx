@@ -4,7 +4,9 @@ import { bulkSelectableIds, dedupeById, filterConversations, type AgeFilter, typ
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { CachedConversation, PairingState } from "@conversation-manager/chatgpt-bridge-server";
 import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
+import type { CodexThreadUsage } from "./global.d.js";
 import { groupChatGptConversations, groupCodexConversations, isFolderGrouped, isProjectTask } from "./codex-groups.js";
+import { formatRequests, formatTokens, formatUsd, instanceName } from "./codex-usage-model.js";
 import { ConversationViewerPanel, relativeTime } from "./conversation-viewer.js";
 import { initialLanguage, setLanguage, t, type Lang } from "./strings.js";
 import { Segmented } from "./segmented.js";
@@ -138,7 +140,7 @@ function ConnectionCard() {
 }
 
 function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(available: boolean): void; state: ConversationState; onState(state: ConversationState): void; onCounts(counts: Partial<Record<ConversationState, number>> | ((old: Partial<Record<ConversationState, number>>) => Partial<Record<ConversationState, number>>)): void }) {
-  const [available, setAvailable] = useState<boolean | null>(null); const [status, setStatus] = useState(t("正在连接本机 Codex…")); const [records, setRecords] = useState<ManagedConversation[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [codexProjects, setCodexProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [available, setAvailable] = useState<boolean | null>(null); const [status, setStatus] = useState(t("正在连接本机 Codex…")); const [records, setRecords] = useState<ManagedConversation[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [codexProjects, setCodexProjects] = useState<Array<{ id: string; name: string }>>([]); const [threadUsage, setThreadUsage] = useState<Record<string, CodexThreadUsage>>({});
   const recordsByState = useRef<Partial<Record<ConversationState, ManagedConversation[]>>>({});
   const viewStateRef = useRef<ConversationState>("active");
   // 同上：layout effect 在 commit 阶段同步写入，早于 fetchState 完成回调所在的微任务
@@ -148,12 +150,23 @@ function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(avai
   useEffect(() => { void window.conversationManager.codex.status().then((value) => { setAvailable(value.available); setStatus(value.message); onStatus?.(value.available); if (value.available) { void fetchState(state, false, true); void fetchState(state === "archived" ? "active" : "archived", false, false); } }); }, []);
   const loadProjects = useCallback((): void => { void window.conversationManager.codex.projects().then((value) => { setCodexProjects(value.projects); void window.conversationManager.logs.info(`codex projects: ${value.projects.length}${value.projects.length ? `: ${value.projects.map((project) => project.name).join(", ").slice(0, 400)}` : ""}`); }).catch(() => {}); }, []);
   useEffect(() => { if (available) loadProjects(); }, [available, loadProjects]);
+  // 任务列表加载后拉取每条会话的 rollout 文件用量（增量扫描，未变更文件只 stat）
+  const threadIdsKey = useMemo(() => records.map((record) => record.id).join(","), [records]);
+  useEffect(() => {
+    // 旧 preload 热更新场景的防御：新渲染端 + 旧桥接时方法不存在，直接跳过
+    if (!available || typeof window.conversationManager.codex.threadUsage !== "function") return;
+    const ids = threadIdsKey ? threadIdsKey.split(",") : [];
+    if (!ids.length) { setThreadUsage({}); return; }
+    let cancelled = false;
+    void window.conversationManager.codex.threadUsage({ ids, rescan: true }).then((result) => { if (!cancelled) setThreadUsage(result.threads); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [available, threadIdsKey]);
   const combinedCodexProjects = useMemo(() => { const byId = new Map(codexProjects.map((project) => [project.id, project.name])); for (const record of records) if (record.projectId && !byId.has(record.projectId)) byId.set(record.projectId, record.projectId); return [...byId].map(([id, name]) => ({ id, name })); }, [codexProjects, records]);
   async function moveProject(record: ManagedConversation, projectId: string | null): Promise<void> { try { await window.conversationManager.codex.setProject(record.id, projectId); const next = records.map((item) => item.id === record.id ? (projectId ? { ...item, projectId } : { ...item, projectId: undefined }) : item); recordsByState.current = { ...recordsByState.current, [state]: next }; setRecords(next); setNotice(projectId ? t("已添加到项目") : t("已移出项目")); } catch (cause) { setError(friendlyError(cause)); } }
   useEffect(() => { if (!available) return; const cachedRecords = recordsByState.current[state]; if (cachedRecords) { setRecords(cachedRecords); setNotice(""); } void fetchState(state, false, true); }, [state]);
   if (available === false) return <section className="connection-card"><div className="connection-art">⌘</div><p className="eyebrow">{t("统一桌面客户端 · 本机 App Server")}</p><h1>{t("暂时无法连接 Codex")}</h1><p>{status}</p><button className="primary" onClick={() => location.reload()}>{t("重新检测")}</button><button onClick={() => void window.conversationManager.openExternal("https://developers.openai.com/codex/app-server")}>{t("查看安装文档")}</button></section>;
   return <>
-    <ManagerLayout source="codex" title={t("Codex 任务")} subtitle={status} emptyHint={t("点击“完整刷新”从本机 App Server 读取任务；若仍为空，请确认已在 Codex 客户端创建过会话。")} onExport={async (ids) => { const picked = await window.conversationManager.dialog.pickDirectory({ defaultPath: localStorage.getItem("cm-export-dir") ?? undefined }); if (!picked.directory) return t("已取消保存"); localStorage.setItem("cm-export-dir", picked.directory); const result = await window.conversationManager.codex.exportSessions({ directory: picked.directory, items: ids.map((id) => { const record = records.find((item) => item.id === id); return { id, title: record?.title ?? "", preview: record?.preview ?? "", cwd: record?.cwd ?? null }; }) }); const failedNote = result.failed.length ? ` · ${t("{n} 条失败", { n: result.failed.length })}` : ""; return `${t("已保存 {n} 个任务文件", { n: result.saved })} → ${result.directory}${failedNote}`; }} state={state} onState={onState} records={records} writable={available === true && !loading} refreshable={available === true} loading={loading} error={error} notice={notice} onRefresh={() => { void fetchState(state, true, true); void fetchState(state === "archived" ? "active" : "archived", false, false); }} onOpen={async (record) => { const result = await window.conversationManager.codex.open(record.id); if (!result.opened) setNotice(t("已复制恢复命令，请在终端运行")); }} onBatch={async (action, ids) => {
+    <ManagerLayout source="codex" title={t("Codex 任务")} subtitle={status} emptyHint={t("点击“完整刷新”从本机 App Server 读取任务；若仍为空，请确认已在 Codex 客户端创建过会话。")} onExport={async (ids) => { const picked = await window.conversationManager.dialog.pickDirectory({ defaultPath: localStorage.getItem("cm-export-dir") ?? undefined }); if (!picked.directory) return t("已取消保存"); localStorage.setItem("cm-export-dir", picked.directory); const result = await window.conversationManager.codex.exportSessions({ directory: picked.directory, items: ids.map((id) => { const record = records.find((item) => item.id === id); return { id, title: record?.title ?? "", preview: record?.preview ?? "", cwd: record?.cwd ?? null }; }) }); const failedNote = result.failed.length ? ` · ${t("{n} 条失败", { n: result.failed.length })}` : ""; return `${t("已保存 {n} 个任务文件", { n: result.saved })} → ${result.directory}${failedNote}`; }} state={state} onState={onState} records={records} usage={threadUsage} writable={available === true && !loading} refreshable={available === true} loading={loading} error={error} notice={notice} onRefresh={() => { void fetchState(state, true, true); void fetchState(state === "archived" ? "active" : "archived", false, false); }} onOpen={async (record) => { const result = await window.conversationManager.codex.open(record.id); if (!result.opened) setNotice(t("已复制恢复命令，请在终端运行")); }} onBatch={async (action, ids) => {
       const codexAction = action === "restore" ? "unarchive" : action; let token: string | undefined;
       if (action === "delete") { if (!(await confirm(deleteConfirmOptions(ids, records, t("任务"))))) return null; const preview = await window.conversationManager.codex.previewDelete(ids); if (preview.missing.length || preview.running.length || !preview.confirmationToken) throw new Error(t("部分任务不存在或仍在运行，无法删除")); if (preview.tasks.length > ids.length && !(await confirm({ title: t("同时删除 {n} 个派生任务", { n: preview.tasks.length - ids.length }), body: t("选中任务带有派生子任务，将随主任务一并删除，此操作无法撤销。") }))) return null; token = preview.confirmationToken; }
       const result = await window.conversationManager.codex.runBatch(codexAction, ids, token); const removed = new Set(result.succeeded); const next = records.filter((record) => !removed.has(record.id)); recordsByState.current = { ...recordsByState.current, [state]: next }; setRecords(next); onCounts((old) => ({ ...old, [state]: next.length })); if (codexAction === "archive" || codexAction === "unarchive") { const to = codexAction === "archive" ? "archived" : "active"; onCounts((old) => ({ ...old, [to]: (old[to] ?? 0) + result.succeeded.length })); } return result;
@@ -162,7 +175,7 @@ function CodexWorkspace({ onStatus, state, onState, onCounts }: { onStatus?(avai
   </>;
 }
 
-function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subtitle: string; emptyHint: string; kind?: "chat" | "work"; onKind?(value: "chat" | "work"): void; onOpenExternal?(): void; onExport?(ids: string[]): Promise<string>; accounts?: Account[]; accountKey?: string; onAccount?(key: string): void; state: ConversationState; onState(state: ConversationState): void; records: ManagedConversation[]; projectNames?: Record<string, string>; projects?: Array<{ id: string; name: string }>; projectsLoading?: boolean; onReloadProjects?(): void; onProjectMove?(record: ManagedConversation, projectId: string | null): void | Promise<void>; onReadConversation?(record: ManagedConversation): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; onBatchProjectMove?(ids: string[], projectId: string | null, records: ManagedConversation[]): Promise<void>; onDismissNotice?(): void; sourceName: string; writable: boolean; refreshable: boolean; loading: boolean; error: string; notice: string; onRefresh(): void | Promise<void>; onOpen(record: ManagedConversation): void | Promise<void>; onCancel?(): Promise<{ cancelled: boolean }>; onBatch(action: "archive" | "restore" | "delete", ids: string[]): Promise<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] } | null> }) {
+function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subtitle: string; emptyHint: string; kind?: "chat" | "work"; onKind?(value: "chat" | "work"): void; onOpenExternal?(): void; onExport?(ids: string[]): Promise<string>; accounts?: Account[]; accountKey?: string; onAccount?(key: string): void; state: ConversationState; onState(state: ConversationState): void; records: ManagedConversation[]; usage?: Record<string, CodexThreadUsage>; projectNames?: Record<string, string>; projects?: Array<{ id: string; name: string }>; projectsLoading?: boolean; onReloadProjects?(): void; onProjectMove?(record: ManagedConversation, projectId: string | null): void | Promise<void>; onReadConversation?(record: ManagedConversation): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; onBatchProjectMove?(ids: string[], projectId: string | null, records: ManagedConversation[]): Promise<void>; onDismissNotice?(): void; sourceName: string; writable: boolean; refreshable: boolean; loading: boolean; error: string; notice: string; onRefresh(): void | Promise<void>; onOpen(record: ManagedConversation): void | Promise<void>; onCancel?(): Promise<{ cancelled: boolean }>; onBatch(action: "archive" | "restore" | "delete", ids: string[]): Promise<{ succeeded: string[]; failed: Array<{ id: string; message: string }>; unprocessed?: string[] } | null> }) {
   const [query, setQuery] = useState(""); const deferredQuery = useDeferredValue(query); const [age, setAge] = useState<AgeFilter>("all"); const [sort, setSort] = useState<"newest" | "oldest">("newest"); const [selected, setSelected] = useState<Set<string>>(new Set()); const [busy, setBusy] = useState(false); const [localNotice, setLocalNotice] = useState(""); const [focusId, setFocusId] = useState<string | null>(null); const [menu, setMenu] = useState<{ x: number; y: number; record: ManagedConversation } | null>(null);
   const [folderExclusions, setFolderExclusions] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem("cm-codex-folder-exclusions") || "[]") as string[]); } catch { return new Set(); } });
   const toggleFolderExclusion = useCallback((id: string, excluded: boolean) => setFolderExclusions((old) => { const next = new Set(old); if (excluded) next.add(id); else next.delete(id); try { localStorage.setItem("cm-codex-folder-exclusions", JSON.stringify([...next])); } catch {} return next; }), []);
@@ -185,7 +198,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
     }
     return list;
   }, [groups, visible, collapsedGroups]);
-  const virtualizer = useVirtualizer({ count: listItems.length, getScrollElement: () => listRef.current, estimateSize: (index) => listItems[index]?.type === "header" ? 40 : 62, overscan: 8, getItemKey: (index) => listItems[index]?.key ?? String(index) });
+  const virtualizer = useVirtualizer({ count: listItems.length, getScrollElement: () => listRef.current, estimateSize: (index) => listItems[index]?.type === "header" ? 40 : props.source === "codex" ? 84 : 62, overscan: 8, getItemKey: (index) => listItems[index]?.key ?? String(index) });
   const toggleOne = (id: string) => setSelected((old) => { const next = new Set(old); if (next.has(id)) { next.delete(id); } else { next.add(id); } return next; });
   async function batch(action: "archive" | "restore" | "delete") { const ids = [...selected]; if (!ids.length) return; setBusy(true); setLocalNotice(""); try { const result = await props.onBatch(action, ids); if (!result) return; setSelected(new Set([...result.failed.map((item) => item.id), ...(result.unprocessed || [])])); setLocalNotice(t("完成：成功 {s}，失败 {f}，未处理 {u}", { s: result.succeeded.length, f: result.failed.length, u: result.unprocessed?.length || 0 })); } catch (cause) { setLocalNotice(`${t("操作失败")}：${message(cause)}`); } finally { setBusy(false); } }
   const runRefresh = () => { setLocalNotice(""); return Promise.resolve(props.onRefresh()); };
@@ -212,6 +225,16 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
   const renderRow = (record: ManagedConversation) => {
     const selectableRow = props.state !== "scheduled" && !record.running && record.capabilities.some((value) => value === "archive" || value === "restore" || value === "delete");
     const sub = props.source === "codex" ? `${record.preview ? `${record.preview} · ` : ""}${isProjectTask(record, folderExclusions) ? t("项目任务") : t("非项目任务")}` : record.projectId ? t("项目会话") : record.pinned ? t("置顶会话") : t("ChatGPT");
+    const usage = props.source === "codex" ? props.usage?.[record.id] : undefined;
+    const meta = props.source === "codex" ? <small className="row-meta">
+      <span className="row-instance">{record.cwd ? instanceName(record.cwd) : t("默认实例")}</span>
+      <span className="row-session-id" title={record.id}>{t("会话 ID")} {shortThreadId(record.id)}</span>
+    </small> : null;
+    const side = props.source === "codex" ? <div className="row-side">
+      <RowSessionActions id={record.id} />
+      {usage && usage.totalTokens > 0 && <span className="usage-pill" title={usagePillTitle(usage)}>{formatTokens(usage.input, "en")} / {formatTokens(usage.output, "en")} tokens</span>}
+      <time title={record.updatedAt ? new Date(record.updatedAt).toLocaleString() : undefined}>{record.updatedAt ? relativeTime(record.updatedAt) : t("未知")}</time>
+    </div> : <time title={record.updatedAt ? new Date(record.updatedAt).toLocaleString() : undefined}>{record.updatedAt ? relativeTime(record.updatedAt) : t("未知")}</time>;
     return <div className={`row ${selected.has(record.id) ? "selected" : ""} ${focusId === record.id ? "focused" : ""}`} key={record.id} onClick={() => { if (selectableRow && !busy) toggleOne(record.id); }} onContextMenu={(event) => { if (!props.onProjectMove) return; event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY, record }); }} onDoubleClick={() => openViewer(record)}>
       <label className="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => toggleOne(record.id)}/><span></span></label>
       <button type="button" className="row-main" onFocus={() => setFocusId(record.id)} onKeyDown={(event) => {
@@ -232,8 +255,9 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
       }} title={t("单击选中 · 双击打开")}>
         <strong>{record.running ? <span className="running-dot" aria-label={t("运行中")} /> : null}{record.title}</strong>
         <small>{sub}</small>
+        {meta}
       </button>
-      <time title={record.updatedAt ? new Date(record.updatedAt).toLocaleString() : undefined}>{record.updatedAt ? relativeTime(record.updatedAt) : t("未知")}</time>
+      {side}
     </div>;
   };
   return <section className="workspace">
@@ -289,6 +313,44 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
       </div>}
     </div>
   </section>;
+}
+
+// Codex 任务行右侧的会话文件操作：复制 ID / 打开所在文件夹 / 打开会话文件。
+// stopPropagation 防止触发行的选中与双击阅读。
+function RowSessionActions({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  // 旧 preload 热更新场景的防御：桥接方法缺失时只保留复制功能
+  const supported = typeof window.conversationManager.codex?.openSessionFile === "function";
+  const copy = (event: React.MouseEvent): void => {
+    event.stopPropagation();
+    void navigator.clipboard.writeText(id).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {});
+  };
+  const open = (mode: "file" | "folder") => (event: React.MouseEvent): void => {
+    event.stopPropagation();
+    if (supported) void window.conversationManager.codex.openSessionFile({ id, mode });
+  };
+  return <span className="row-actions" onClick={(event) => event.stopPropagation()}>
+    <button type="button" className="row-action" title={copied ? t("已复制") : t("复制会话 ID")} onClick={copy}>{copied
+      ? <svg viewBox="0 0 16 16" aria-hidden><path d="m3 8.5 3.2 3.2L13 5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      : <svg viewBox="0 0 16 16" aria-hidden><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M10.5 5.5v-1a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4.5v5A1.5 1.5 0 0 0 4 11h1.5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>}</button>
+    {supported && <button type="button" className="row-action" title={t("打开会话所在文件夹")} onClick={open("folder")}><svg viewBox="0 0 16 16" aria-hidden><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 2h4.5A1.5 1.5 0 0 1 14 6.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>}
+    {supported && <button type="button" className="row-action" title={t("打开会话文件")} onClick={open("file")}><svg viewBox="0 0 16 16" aria-hidden><path d="M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6L9 2Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><path d="M9 2v4h4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg></button>}
+  </span>;
+}
+
+/** 会话 ID 中段省略展示（完整 ID 见悬停提示与复制按钮） */
+function shortThreadId(id: string): string {
+  return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
+}
+
+function usagePillTitle(usage: CodexThreadUsage): string {
+  return t("输入 {input} · 缓存 {cached} · 输出 {output} · {requests} 次请求 · 估算费用 {cost}", {
+    input: formatRequests(usage.input),
+    cached: formatRequests(usage.cachedInput),
+    output: formatRequests(usage.output),
+    requests: formatRequests(usage.requests),
+    cost: formatUsd(usage.costUsd)
+  });
 }
 
 function toChatManaged(record: CachedConversation): ManagedConversation { return { source: "chatgpt", ...record, capabilities: record.state === "scheduled" ? [] : record.state === "archived" ? ["open", "restore", "delete"] : ["open", "archive", "delete"], running: false }; }

@@ -8,13 +8,38 @@ export interface BatchResult { succeeded: string[]; failed: Array<{ id: string; 
 export interface DailyBucket { chatgptNew: number; codexNew: number; chatgptActive: number; codexActive: number }
 export interface DailyStatsFile { schemaVersion: 1; days: Record<string, DailyBucket>; badges?: Record<string, string> }
 
+// 与主进程 codex-usage.ts 的 CodexUsageSummary 保持同构（stats:codex-usage 的返回值）。
+// costUsd 按"日期 × 实例 × 模型"粒度就地给出，渲染端任意范围筛选直接求和。
+export interface CodexUsageCell { requests: number; input: number; cachedInput: number; output: number; costUsd: number }
+export interface CodexUsageTotals extends CodexUsageCell { totalTokens: number }
+export interface CodexUsageDay { date: string; instances: Record<string, Record<string, CodexUsageCell>> }
+export interface CodexUsageModelRow extends CodexUsageTotals { model: string }
+export interface CodexUsageInstanceRow extends CodexUsageTotals { cwd: string }
+export interface CodexUsageSummary {
+  generatedAt: number;
+  scannedFiles: number;
+  sessions: number;
+  forkedSessions: number;
+  requests: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  days: CodexUsageDay[];
+  models: CodexUsageModelRow[];
+  instances: CodexUsageInstanceRow[];
+}
+// 与主进程 codex-usage.ts 的 ThreadUsageDetail 保持同构（codex:thread-usage 的返回值）
+export interface CodexThreadUsage { file: string; input: number; cachedInput: number; output: number; totalTokens: number; requests: number; costUsd: number; cwd: string; updatedAt: number }
+
 declare global {
   interface Window { conversationManager: {
     appVersion(): Promise<string>;
     openExternal(url: string): Promise<void>;
     setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
     dialog: { pickDirectory(payload?: { defaultPath?: string }): Promise<{ directory: string | null }> };
-    stats: { daily(buckets: Record<string, DailyBucket>): Promise<DailyStatsFile>; badges(awards: Record<string, string>): Promise<DailyStatsFile> };
+    stats: { daily(buckets: Record<string, DailyBucket>): Promise<DailyStatsFile>; badges(awards: Record<string, string>): Promise<DailyStatsFile>; codexUsage(payload?: { force?: boolean }): Promise<CodexUsageSummary> };
     chatgpt: {
       state(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; readConversation(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; quickSearch(payload: { query?: string; limit?: number }): Promise<{ total: number; rows: Array<{ id: string; accountKey: string; title: string; state: string; createdAt: number | null; updatedAt: number | null; projectId: string | null }> }>; showExtension(): Promise<string>; extensionDirectory(): Promise<string>;
       accounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;
@@ -45,6 +70,8 @@ declare global {
       exportSessions(payload: { directory: string; items: Array<{ id: string; title: string; preview: string; cwd: string | null }> }): Promise<{ saved: number; failed: Array<{ id: string; message: string }>; directory: string }>;
       exportSessionsArchive(): Promise<{ cancelled: boolean; count?: number; file?: string }>;
       importSessionsArchive(): Promise<{ cancelled: boolean; imported?: number; skipped?: number }>;
+      threadUsage(payload: { ids: string[]; rescan?: boolean }): Promise<{ threads: Record<string, CodexThreadUsage> }>;
+      openSessionFile(payload: { id: string; mode: "file" | "folder" }): Promise<{ opened: boolean }>;
       onArchiveProgress(callback: (progress: { phase: string; files: number }) => void): () => void;
     };
     logs: { read(): Promise<string>; clear(): Promise<boolean>; save(): Promise<{ saved: boolean; path?: string }>; info(message: string): Promise<void>; onLine(callback: (line: string) => void): () => void };

@@ -13,6 +13,7 @@ import { syncExtensionFiles } from "./extension-sync.js";
 import { healLoadedExtensionFolders } from "./extension-heal.js";
 import { extensionCodeHash, classifyExtensionStaleness, shouldDemandReload } from "./extension-integrity.js";
 import { loadDailyStats, mergeDailyStats, saveDailyStats, mergeBadgeAwards, type DailyBucket } from "./stats-daily.js";
+import { emptyUsageSummary, scanCodexUsage, buildThreadUsageIndex, type CodexUsageSummary, type FileUsage, type ThreadUsageDetail } from "./codex-usage.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
 import { cleanupMacInstallLeftovers, isNewerVersion, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
@@ -213,6 +214,72 @@ ipcMain.handle("stats:badges", async (event, value) => {
   const merged = mergeBadgeAwards(await loadDailyStats(file), awards);
   await saveDailyStats(file, merged);
   return merged;
+});
+// Codex 真实 Token 用量：增量扫描 ~/.codex 会话日志（rollout JSONL 的 token_count 事件），
+// 只读计数不读正文；mtime/size 未变的文件走本地缓存。并发请求复用同一次扫描，
+// 避免统计页刷新时重复读盘。扫描失败降级为空摘要，不影响统计页其余部分。
+let codexUsageScan: Promise<{ summary: CodexUsageSummary; files: Record<string, FileUsage> }> | null = null;
+let codexThreadUsageIndex: Promise<Map<string, ThreadUsageDetail>> | null = null;
+const codexHomeDir = () => join(homedir(), ".codex");
+function runCodexUsageScan(force: boolean): Promise<{ summary: CodexUsageSummary; files: Record<string, FileUsage> }> {
+  if (codexUsageScan) return codexUsageScan;
+  codexUsageScan = (async () => {
+    try {
+      const { summary, files } = await scanCodexUsage(codexHomeDir(), join(app.getPath("userData"), "codex-usage-cache.json"), { force });
+      logInfo(`codex usage scan: files=${summary.scannedFiles}, sessions=${summary.sessions}, requests=${summary.requests}`);
+      return { summary, files };
+    } catch (error) {
+      logWarn(`codex usage scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      return { summary: emptyUsageSummary(), files: {} };
+    }
+  })();
+  return codexUsageScan.finally(() => { codexUsageScan = null; });
+}
+// 线程 id → rollout 文件/用量 的索引：rescan 时重跑增量扫描（未变更文件只 stat，开销极小）
+function runThreadUsageIndex(rescan: boolean): Promise<Map<string, ThreadUsageDetail>> {
+  if (rescan || !codexThreadUsageIndex) {
+    codexThreadUsageIndex = runCodexUsageScan(false).then((result) => buildThreadUsageIndex(result.files, codexHomeDir()));
+  }
+  return codexThreadUsageIndex;
+}
+ipcMain.handle("stats:codex-usage", (event, value) => {
+  requireRenderer(event);
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const force = input.force === true;
+  return runCodexUsageScan(force).then((result) => {
+    // 强制重扫后旧的线程索引不再可信，置空让下次查询重建
+    if (force) codexThreadUsageIndex = null;
+    return result.summary;
+  });
+});
+ipcMain.handle("codex:thread-usage", async (event, value) => {
+  requireRenderer(event);
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const rawIds = Array.isArray(input.ids) ? input.ids : [];
+  const ids = rawIds.filter((id): id is string => typeof id === "string" && id.length >= 8 && id.length <= 128).slice(0, 500);
+  const index = await runThreadUsageIndex(input.rescan === true);
+  const threads: Record<string, ThreadUsageDetail> = {};
+  for (const id of ids) {
+    const detail = index.get(id);
+    if (detail) threads[id] = detail;
+  }
+  return { threads };
+});
+// 打开会话的 rollout 文件 / 所在文件夹：路径只在主进程内从扫描索引解析（不信任渲染端传入的路径）
+ipcMain.handle("codex:open-session-file", async (event, value) => {
+  requireRenderer(event);
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const id = requireId(input.id);
+  const index = await runThreadUsageIndex(false);
+  const detail = index.get(id);
+  if (!detail) return { opened: false };
+  if (input.mode === "folder") {
+    shell.showItemInFolder(detail.file);
+    return { opened: true };
+  }
+  // openPath 失败（文件被移动/删除）时返回错误消息字符串
+  const openError = await shell.openPath(detail.file);
+  return { opened: !openError };
 });
 ipcMain.handle("chatgpt:export", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
