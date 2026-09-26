@@ -42,6 +42,7 @@ Double-click any conversation to read its full content in-app, with Markdown tab
 - Project management: ChatGPT “Work” and Codex tasks are grouped by project folder; right-click any conversation to move it into or out of a project, synced back to ChatGPT / Codex. Codex directory-grouped tasks can be moved to “Non-project tasks” and restored.
 - ChatGPT distinguishes chat from project work: project conversations are hidden from the chat list by default and managed from the Work view.
 - Codex task rows embed session metadata: the instance (working directory) and a middle-truncated session ID, with one-click copy of the full ID, plus buttons to open the session log file or its folder. A badge on the right shows the rollout file's live token usage (input / output — hover for cached tokens and request counts).
+- ChatGPT conversation rows show the same middle-truncated session ID with one-click copy; token-usage stats remain Codex-only (chatgpt.com conversations live in the cloud with no local logs to measure).
 
 ### Cache & Sync
 
@@ -150,14 +151,14 @@ Download `Conversation-Manager-x.y.z-mac-arm64.zip`, extract it, then right-clic
 Files downloaded with `curl` carry no quarantine flag and open directly:
 
 ```bash
-curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.12/Conversation-Manager-0.7.12-mac-arm64.zip"
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.13/Conversation-Manager-0.7.13-mac-arm64.zip"
 ```
 
 - Load the companion browser extension and it auto-pairs within 30 seconds; `thread/read` export requires an open chatgpt.com tab.
 
 ## Current Limits
 
-- `v0.7.12` supports Windows x64 and macOS (Apple Silicon), both with in-app auto-update; the Windows portable build and macOS use a download-verified in-place swap because they are not signed.
+- `v0.7.13` supports Windows x64 and macOS (Apple Silicon), both with in-app auto-update; the Windows portable build and macOS use a download-verified in-place swap because they are not signed.
 - The companion extension is distributed as a Release ZIP; it is not yet on the browser stores.
 - Firefox, and direct access to the ChatGPT desktop client's private chat database, are not supported yet.
 

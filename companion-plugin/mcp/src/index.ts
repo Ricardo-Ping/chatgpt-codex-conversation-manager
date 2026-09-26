@@ -66,7 +66,7 @@ function titles(records: CodexThread[], ids: string[]): Array<{ id: string; titl
   });
 }
 
-const server = new McpServer({ name: "conversation-manager", version: "0.7.12" });
+const server = new McpServer({ name: "conversation-manager", version: "0.7.13" });
 
 server.registerTool("desktop_status", {
   description: "Check whether the local Codex App Server is available.",

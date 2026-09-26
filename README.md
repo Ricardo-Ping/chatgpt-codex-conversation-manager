@@ -42,6 +42,7 @@ Conversation Manager 是一款面向 ChatGPT 与 Codex 的**本地桌面会话�
 - 项目管理：ChatGPT「工作」视图与 Codex 任务按项目文件夹分组；右键会话即可加入或移出项目，操作实时同步回 ChatGPT / Codex；Codex 按工作目录分组的会话可移入「非项目任务」并可恢复。
 - ChatGPT 区分「聊天」与「项目工作」：项目相关会话默认从聊天列表隐藏，只在项目工作视图管理。
 - Codex 任务行内嵌会话元信息：显示实例（工作目录）与中段省略的会话 ID，一键复制完整 ID、打开会话日志文件或所在文件夹；右侧徽标实时展示该会话文件的 Token 用量（输入 / 输出，悬停查看缓存与请求明细）。
+- ChatGPT 会话行同样显示中段省略的会话 ID 并可一键复制；Token 用量统计为 Codex 专属（ChatGPT 会话在云端、无本地日志可计量）。
 
 ### 缓存与同步
 
@@ -150,14 +151,14 @@ pnpm package:mac
 `curl` 下载的文件不携带隔离标记，解压后可直接打开：
 
 ```bash
-curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.12/Conversation-Manager-0.7.12-mac-arm64.zip"
+curl -LO "https://github.com/Ricardo-Ping/chatgpt-codex-conversation-manager/releases/download/v0.7.13/Conversation-Manager-0.7.13-mac-arm64.zip"
 ```
 
 - 加载浏览器扩展后 30 秒内自动配对；`thread/read` 内容读取需要在 chatgpt.com 页面打开的状态下使用。
 
 ## 已知限制
 
-- `v0.7.12` 支持 Windows x64 与 macOS（Apple Silicon），均支持应用内自动更新；Windows 便携版与 macOS 因未做 Apple 签名，自动更新采用下载校验后原地换包的方式实现。
+- `v0.7.13` 支持 Windows x64 与 macOS（Apple Silicon），均支持应用内自动更新；Windows 便携版与 macOS 因未做 Apple 签名，自动更新采用下载校验后原地换包的方式实现。
 - 配套扩展暂通过 Release ZIP 分发，尚未上架浏览器商店。
 - Firefox，以及直接读取 ChatGPT 桌面客户端的私有聊天数据库暂不支持。
 
