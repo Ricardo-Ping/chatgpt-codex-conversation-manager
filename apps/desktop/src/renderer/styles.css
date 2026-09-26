@@ -364,8 +364,10 @@ button { cursor: pointer; }
 .usage-tile-body span { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
 .usage-chart { margin-bottom: 14px; }
 .usage-tables { margin-bottom: 14px; }
-.usage-table-wrap { min-width: 0; padding: 13px 15px 10px; background: var(--surface); border: 1px solid var(--border-card); border-radius: 13px; overflow-x: auto; }
-.usage-table-wrap h3 { margin: 0 0 8px; font-size: 13px; color: var(--heading); }
+.usage-table-wrap { min-width: 0; padding: 13px 15px 10px; background: var(--surface); border: 1px solid var(--border-card); border-radius: 13px; overflow: hidden; display: flex; flex-direction: column; }
+.usage-table-wrap h3 { margin: 0 0 8px; font-size: 13px; color: var(--heading); display: flex; align-items: center; gap: 7px; flex: none; }
+.usage-count { background: var(--chip); color: var(--text-muted); border-radius: 999px; padding: 1px 9px; font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.usage-table-body { overflow: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .usage-table th { padding: 4px 8px 6px; border-bottom: 1px solid var(--border); text-align: right; color: var(--text-faint); font-weight: 600; font-size: 11px; white-space: nowrap; }
 .usage-table th.usage-name { text-align: left; }
@@ -377,7 +379,8 @@ button { cursor: pointer; }
 .usage-total i { display: block; height: 3px; margin-top: 4px; border-radius: 2px; background: var(--heat-empty); overflow: hidden; }
 .usage-total i b { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--brand-3), var(--brand)); }
 .usage-table-empty { margin: 6px 0 4px; color: var(--text-faint); font-size: 12.5px; }
-.usage-table-wrap.scroll { max-height: 336px; overflow: auto; }
+/* 滚动表格：卡片高度封顶，标题栏常驻，表头在滚动区内吸附 */
+.usage-table-wrap.scroll .usage-table-body { max-height: 320px; }
 .usage-table-wrap.scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
 .usage-instance { max-width: 170px; border: 1px solid var(--border-strong); background: var(--surface-input); color: var(--text-sub); border-radius: 10px; padding: 7px 9px; font-size: 12.5px; }
 .usage-rescan { border: 1px solid var(--border-strong); background: var(--surface-solid); color: var(--text-sub); border-radius: 10px; padding: 7px 12px; font-size: 12.5px; font-weight: 600; }

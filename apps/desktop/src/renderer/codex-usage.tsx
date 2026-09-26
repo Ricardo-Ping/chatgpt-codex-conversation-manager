@@ -103,27 +103,29 @@ function UsageTile({ icon, tone, label, value, title }: { icon: ReactNode; tone:
 
 interface UsageTableRow { name: string; fullName: string; cells: string[]; total: string; totalTitle: string; share: number }
 
-function UsageTable({ label, nameColumn, cellColumns, rows, wrapClass }: { label: string; nameColumn: string; cellColumns: string[]; rows: UsageTableRow[]; wrapClass?: string }) {
+function UsageTable({ label, nameColumn, cellColumns, rows, wrapClass, count }: { label: string; nameColumn: string; cellColumns: string[]; rows: UsageTableRow[]; wrapClass?: string; count?: number }) {
   return <div className={`usage-table-wrap${wrapClass ? ` ${wrapClass}` : ""}`}>
-    <h3>{label}</h3>
-    <table className="usage-table">
-      <thead><tr>
-        <th className="usage-name">{nameColumn}</th>
-        {cellColumns.map((column) => <th key={column} className="usage-num">{column}</th>)}
-        <th className="usage-num">{t("合计")}</th>
-      </tr></thead>
-      <tbody>
-        {rows.map((row) => <tr key={row.fullName}>
-          <td className="usage-name" title={row.fullName !== row.name ? row.fullName : undefined}>{row.name}</td>
-          {row.cells.map((cell, index) => <td key={index} className="usage-num">{cell}</td>)}
-          <td className="usage-num usage-total" title={row.totalTitle}>
-            <span>{row.total}</span>
-            <i aria-hidden><b style={{ width: `${row.share}%` }} /></i>
-          </td>
-        </tr>)}
-      </tbody>
-    </table>
-    {!rows.length && <p className="usage-table-empty">{t("暂无数据")}</p>}
+    <h3>{label}{typeof count === "number" && count > 0 && <span className="usage-count">{formatRequests(count)}</span>}</h3>
+    <div className="usage-table-body">
+      <table className="usage-table">
+        <thead><tr>
+          <th className="usage-name">{nameColumn}</th>
+          {cellColumns.map((column) => <th key={column} className="usage-num">{column}</th>)}
+          <th className="usage-num">{t("合计")}</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((row) => <tr key={row.fullName}>
+            <td className="usage-name" title={row.fullName !== row.name ? row.fullName : undefined}>{row.name}</td>
+            {row.cells.map((cell, index) => <td key={index} className="usage-num">{cell}</td>)}
+            <td className="usage-num usage-total" title={row.totalTitle}>
+              <span>{row.total}</span>
+              <i aria-hidden><b style={{ width: `${row.share}%` }} /></i>
+            </td>
+          </tr>)}
+        </tbody>
+      </table>
+      {!rows.length && <p className="usage-table-empty">{t("暂无数据")}</p>}
+    </div>
   </div>;
 }
 
@@ -206,7 +208,8 @@ export function CodexUsageCard({ palette, refreshSignal }: { palette: ChartPalet
       <div className="stats-row usage-tables">
         <UsageTable
           label={t("按模型")}
-          wrapClass="models"
+          wrapClass="scroll models"
+          count={view.models.length}
           nameColumn={t("模型")}
           cellColumns={[t("输入"), t("缓存"), t("输出"), t("请求"), t("费用")]}
           rows={view.models.map((row) => ({
@@ -220,6 +223,8 @@ export function CodexUsageCard({ palette, refreshSignal }: { palette: ChartPalet
         />
         <UsageTable
           label={t("按实例")}
+          wrapClass="scroll"
+          count={view.instances.length}
           nameColumn={t("实例")}
           cellColumns={[t("输入"), t("缓存"), t("输出"), t("请求")]}
           rows={view.instances.map((row) => ({
@@ -235,6 +240,7 @@ export function CodexUsageCard({ palette, refreshSignal }: { palette: ChartPalet
       <UsageTable
         label={t("按日期")}
         wrapClass="scroll"
+        count={view.dayRows.length}
         nameColumn={t("日期")}
         cellColumns={[t("输入"), t("缓存"), t("输出"), t("请求"), t("费用")]}
         rows={view.dayRows.map((row) => ({
