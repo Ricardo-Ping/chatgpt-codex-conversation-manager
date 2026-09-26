@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, shell, Tray } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, Notification, shell, Tray } from "electron";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -13,8 +13,9 @@ import { syncExtensionFiles } from "./extension-sync.js";
 import { healLoadedExtensionFolders } from "./extension-heal.js";
 import { extensionCodeHash, classifyExtensionStaleness, shouldDemandReload } from "./extension-integrity.js";
 import { loadDailyStats, mergeDailyStats, saveDailyStats, mergeBadgeAwards, type DailyBucket } from "./stats-daily.js";
-import { emptyUsageSummary, scanCodexUsage, buildThreadUsageIndex, type CodexUsageSummary, type FileUsage, type ThreadUsageDetail } from "./codex-usage.js";
+import { emptyUsageSummary, scanCodexUsage, buildThreadUsageIndex, buildUsageReportCsv, buildUsageReportMarkdown, loadUsagePreferences, localDateKey, saveUsagePreferences, setCustomPricing, topUsageSessions, usageBudgetStatus, type CodexUsageSummary, type FileUsage, type ThreadUsageDetail, type UsagePreferences } from "./codex-usage.js";
 import { terminalResumeSpawn } from "./open-terminal.js";
+import { loadConversationMeta, sanitizeConversationMeta, saveConversationMeta } from "./conversation-meta.js";
 import { cleanupMacInstallLeftovers, isNewerVersion, macAppBundlePath } from "./mac-updater.js";
 import { initLogger, logInfo, logWarn, onLogLine, readLogs, clearLogs, saveLogsTo } from "./logger.js";
 import { loadLanguagePreference, saveLanguagePreference, setAppLanguage, appLanguage, M, type AppLanguage } from "./language.js";
@@ -137,7 +138,8 @@ async function connectCodex(): Promise<boolean> {
   try { return await codexConnection; } finally { codexConnection = null; }
 }
 ipcMain.handle("app:version", (event) => { requireRenderer(event); return app.getVersion(); });
-ipcMain.handle("external:open", async (event, value) => { requireRenderer(event); if (value !== CHATGPT_URL && value !== RELEASE_URL && value !== "https://developers.openai.com/codex/app-server") throw new Error("URL not allowed"); await shell.openExternal(value); });
+const GITHUB_PROFILE_URL = "https://github.com/Ricardo-Ping";
+ipcMain.handle("external:open", async (event, value) => { requireRenderer(event); if (value !== CHATGPT_URL && value !== RELEASE_URL && value !== GITHUB_PROFILE_URL && value !== "https://developers.openai.com/codex/app-server") throw new Error("URL not allowed"); await shell.openExternal(value); });
 ipcMain.handle("chatgpt:state", async (event) => { requireRenderer(event); await updateExtensionReloadHint(); return bridge.state(); });
 ipcMain.handle("chatgpt:clear-pairing", async (event) => { requireRenderer(event); await bridge.clearPairing(); return bridge.state(); });
 ipcMain.handle("chatgpt:open", async (event) => { requireRenderer(event); await shell.openExternal(CHATGPT_URL); });
@@ -226,13 +228,32 @@ ipcMain.handle("stats:badges", async (event, value) => {
 // 避免统计页刷新时重复读盘。扫描失败降级为空摘要，不影响统计页其余部分。
 let codexUsageScan: Promise<{ summary: CodexUsageSummary; files: Record<string, FileUsage> }> | null = null;
 let codexThreadUsageIndex: Promise<Map<string, ThreadUsageDetail>> | null = null;
+let usageBudgetNotifiedOn = "";
 const codexHomeDir = () => join(homedir(), ".codex");
+const usagePrefsFile = () => join(app.getPath("userData"), "codex-usage-preferences.json");
 function runCodexUsageScan(force: boolean): Promise<{ summary: CodexUsageSummary; files: Record<string, FileUsage> }> {
   if (codexUsageScan) return codexUsageScan;
   codexUsageScan = (async () => {
     try {
       const { summary, files } = await scanCodexUsage(codexHomeDir(), join(app.getPath("userData"), "codex-usage-cache.json"), { force });
       logInfo(`codex usage scan: files=${summary.scannedFiles}, sessions=${summary.sessions}, requests=${summary.requests}`);
+      // 每日预算检查：超过阈值当天只提醒一次（系统通知，点击打开主窗口）
+      try {
+        const prefs = await loadUsagePreferences(usagePrefsFile());
+        const status = usageBudgetStatus(summary, prefs);
+        if (status.exceeded) {
+          const today = localDateKey(Date.now());
+          if (usageBudgetNotifiedOn !== today) {
+            usageBudgetNotifiedOn = today;
+            if (Notification.isSupported()) {
+              const notification = new Notification({ title: M().usageBudgetTitle, body: M().usageBudgetBody(status.todayTokens.toLocaleString(), Math.round(status.budget ?? 0).toLocaleString()) });
+              notification.on("click", () => showMainWindow());
+              notification.show();
+            }
+            logInfo(`codex usage budget exceeded: today=${status.todayTokens} >= budget=${status.budget}`);
+          }
+        }
+      } catch (budgetError) { logWarn(`codex usage budget check failed: ${budgetError instanceof Error ? budgetError.message : String(budgetError)}`); }
       return { summary, files };
     } catch (error) {
       logWarn(`codex usage scan failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -270,6 +291,65 @@ ipcMain.handle("codex:thread-usage", async (event, value) => {
     if (detail) threads[id] = detail;
   }
   return { threads };
+});
+// 最耗会话排行：since 为本地日期下限（YYYY-MM-DD，含当天），instance 为精确工作目录
+ipcMain.handle("codex:top-sessions", async (event, value) => {
+  requireRenderer(event);
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const since = typeof input.since === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.since) ? input.since : undefined;
+  const instance = typeof input.instance === "string" && input.instance ? input.instance.slice(0, 500) : undefined;
+  const limit = typeof input.limit === "number" && Number.isFinite(input.limit) ? Math.max(1, Math.min(50, Math.floor(input.limit))) : 10;
+  const { files } = await runCodexUsageScan(false);
+  return { sessions: topUsageSessions(files, codexHomeDir(), { since, instance, limit }) };
+});
+// 用量偏好：自定义价目表（模型前缀 + $/M）与每日预算；保存后立即生效于后续聚合
+ipcMain.handle("usage-prefs:get", async (event) => { requireRenderer(event); return loadUsagePreferences(usagePrefsFile()); });
+// ChatGPT 会话的本地元数据（标签 / 收藏）：渲染端持有全量状态，整包写回
+const convMetaFile = () => join(app.getPath("userData"), "conversation-metadata.json");
+ipcMain.handle("conv-meta:get", async (event) => { requireRenderer(event); return loadConversationMeta(convMetaFile()); });
+ipcMain.handle("conv-meta:set", async (event, value) => {
+  requireRenderer(event);
+  const meta = sanitizeConversationMeta(value);
+  await saveConversationMeta(convMetaFile(), meta);
+  return meta;
+});
+ipcMain.handle("usage-prefs:set", async (event, value) => {
+  requireRenderer(event);
+  const prefs: UsagePreferences = {
+    pricing: (Array.isArray(value?.pricing) ? value.pricing as unknown[] : []).slice(0, 20).flatMap((item) => {
+      const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
+      const pattern = typeof row.pattern === "string" ? row.pattern.trim() : "";
+      const num = (v: unknown): number | null => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+      const input = num(row.input); const cachedInput = num(row.cachedInput); const output = num(row.output);
+      return pattern && pattern.length <= 60 && input !== null && cachedInput !== null && output !== null ? [{ pattern, input, cachedInput, output }] : [];
+    }),
+    dailyTokenBudget: typeof value?.dailyTokenBudget === "number" && Number.isFinite(value.dailyTokenBudget) && value.dailyTokenBudget >= 0 ? value.dailyTokenBudget : null
+  };
+  await saveUsagePreferences(usagePrefsFile(), prefs);
+  setCustomPricing(prefs.pricing);
+  logInfo(`codex usage prefs saved: rules=${prefs.pricing.length}, budget=${prefs.dailyTokenBudget ?? "off"}`);
+  return prefs;
+});
+// 用量报表导出：由保存对话框选择的扩展名决定 CSV / Markdown
+ipcMain.handle("stats:export-usage-report", async (event, value) => {
+  requireRenderer(event);
+  if (!mainWindow) throw new Error(M().windowUnavailable);
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const summary = input.summary;
+  const valid = Boolean(summary && typeof summary === "object" && Array.isArray((summary as CodexUsageSummary).days) && Array.isArray((summary as CodexUsageSummary).models));
+  if (!valid) throw new Error("Invalid usage report payload");
+  const report = summary as CodexUsageSummary;
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: M().usageExportTitle,
+    defaultPath: `codex-usage-report-${localDateKey(Date.now())}.csv`,
+    filters: [{ name: "CSV", extensions: ["csv"] }, { name: "Markdown", extensions: ["md"] }]
+  });
+  if (result.canceled || !result.filePath) return { saved: false };
+  const isMarkdown = /\.md$/i.test(result.filePath);
+  const content = isMarkdown ? buildUsageReportMarkdown(report) : buildUsageReportCsv(report);
+  await writeFile(result.filePath, content, "utf8");
+  logInfo(`codex usage report exported: ${result.filePath}`);
+  return { saved: true, path: result.filePath };
 });
 // 打开会话的 rollout 文件 / 所在文件夹：路径只在主进程内从扫描索引解析（不信任渲染端传入的路径）
 ipcMain.handle("codex:open-session-file", async (event, value) => {
@@ -571,6 +651,17 @@ async function handleLocalCommand(type: string, payload: unknown): Promise<unkno
     if (!first) throw new Error("No ChatGPT account has been synced yet. Sync once in the desktop app first.");
     return first;
   };
+  if (type === "codex.usage") {
+    const { summary, files } = await runCodexUsageScan(false);
+    const top = typeof input.top === "number" && Number.isFinite(input.top) && input.top >= 1
+      ? topUsageSessions(files, codexHomeDir(), {
+        limit: Math.min(50, Math.floor(input.top)),
+        since: typeof input.since === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.since) ? input.since : undefined,
+        instance: typeof input.instance === "string" ? input.instance.slice(0, 500) : undefined
+      })
+      : undefined;
+    return { summary, ...(top ? { top } : {}) };
+  }
   if (type === "chatgpt.status") {
     const state = bridge.state();
     return { paired: state.paired, extensionConnected: state.connected, version: app.getVersion(), accounts: indexStore.accounts().map((account) => ({ key: account.key, label: account.label })) };
@@ -655,6 +746,8 @@ app.whenReady().then(async () => {
       codex = new CodexAppServer(codexCommand);
     }
   } catch {}
+  // 恢复用户自定义价目表：后续任何用量聚合（含缓存命中的重聚合）都按它计算费用
+  try { setCustomPricing((await loadUsagePreferences(usagePrefsFile())).pricing); } catch (pricingError) { logWarn(`codex usage prefs load failed: ${pricingError instanceof Error ? pricingError.message : String(pricingError)}`); }
   bridge = new ChatGptBridgeServer(join(userData, "bridge-secret"));
   bridge.onSecretChange(() => writeMcpEndpointFile());
   bridge.setLocalHandler(handleLocalCommand);

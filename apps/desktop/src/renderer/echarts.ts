@@ -1,10 +1,10 @@
 // ECharts 按需注册：只引入统计页用到的图表/组件与 Canvas 渲染器，控制打包体积。
 import * as echarts from "echarts/core";
-import { BarChart, HeatmapChart, LineChart, PieChart } from "echarts/charts";
+import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 import { CalendarComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 
-echarts.use([BarChart, HeatmapChart, LineChart, PieChart, CalendarComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, HeatmapChart, LineChart, PieChart, ScatterChart, CalendarComponent, GridComponent, LegendComponent, MarkLineComponent, TitleComponent, TooltipComponent, CanvasRenderer]);
 
 export interface ChartPalette {
   text: string;

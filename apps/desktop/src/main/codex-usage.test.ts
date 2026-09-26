@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildThreadUsageIndex, estimateCost, localDateKey, modelPrice, parseSessionFile, scanCodexUsage, summarizeUsage, type FileUsage } from "./codex-usage.js";
+import { buildThreadUsageIndex, buildUsageReportCsv, buildUsageReportMarkdown, estimateCost, localDateKey, modelPrice, parseSessionFile, sanitizeUsagePreferences, scanCodexUsage, setCustomPricing, summarizeUsage, topUsageSessions, usageBudgetStatus, type CodexUsageSummary, type FileUsage } from "./codex-usage.js";
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -56,11 +56,18 @@ describe("localDateKey", () => {
 describe("estimateCost", () => {
   it("bills cached input at the cached rate and the rest at the input rate", () => {
     const cost = estimateCost("gpt-5.3-codex", { input: 2_000_000, cachedInput: 1_000_000, output: 100_000 });
-    // (2M-1M)*1.25 + 1M*0.125 + 0.1M*10 = 1.25 + 0.125 + 1.0
-    expect(cost).toBeCloseTo(2.375, 6);
+    // 官方价（$/1M）：输入 1.75 · 缓存 0.175 · 输出 14
+    // (2M-1M)*1.75 + 1M*0.175 + 0.1M*14 = 1.75 + 0.175 + 1.4
+    expect(cost).toBeCloseTo(3.325, 6);
+  });
+  it("uses official published prices for known models", () => {
+    expect(modelPrice("gpt-6-luna")).toEqual({ input: 0.1, cachedInput: 0.01, output: 0.5 });
+    expect(modelPrice("gpt-5.6-sol")).toEqual({ input: 4, cachedInput: 0.4, output: 20 });
+    expect(modelPrice("gpt-5.3-codex")).toEqual({ input: 1.75, cachedInput: 0.175, output: 14 });
+    expect(modelPrice("gpt-5.4")).toEqual({ input: 2.5, cachedInput: 0.25, output: 15 });
   });
   it("falls back to the default price for unknown models", () => {
-    expect(modelPrice("gpt-6-luna")).toEqual(modelPrice("anything-else"));
+    expect(modelPrice("totally-unknown-model")).toEqual(modelPrice("anything-else"));
   });
 });
 
@@ -256,5 +263,80 @@ describe("scanCodexUsage", () => {
     });
     const recovered = await scanCodexUsage(home, cacheFile);
     expect(recovered.summary.requests).toBe(1);
+  });
+});
+
+describe("custom pricing, budget and report", () => {
+  const fileFixture = (cwd: string, rolloutId: string, date: string, values: [number, number, number, number], mtimeMs = 100): FileUsage => ({
+    mtimeMs, size: 1, rolloutId, sessionId: rolloutId, cwd, forked: false,
+    days: { [date]: { "gpt-5.6-sol": values } }
+  });
+  const usageSummary = (): CodexUsageSummary => summarizeUsage({
+    "sessions/a.jsonl": fileFixture("E:\\work\\demo", "rollout-a", "2026-09-20", [2, 300, 180, 30]),
+    "sessions/b.jsonl": fileFixture("E:\\work\\other", "rollout-b", "2026-09-21", [1, 50, 0, 5], 200)
+  });
+
+  it("applies custom prefix pricing before the built-in table", () => {
+    const builtIn = modelPrice("gpt-5.6-sol").input;
+    setCustomPricing([{ pattern: "gpt-5.6", input: 3, cachedInput: 0.3, output: 12 }]);
+    expect(modelPrice("gpt-5.6-sol").input).toBe(3);
+    // 更长前缀优先：精确匹配 gpt-5.6-sol 的规则赢过宽泛的 gpt-5.6
+    setCustomPricing([{ pattern: "gpt-5.6", input: 3, cachedInput: 0.3, output: 12 }, { pattern: "gpt-5.6-sol", input: 5, cachedInput: 0.5, output: 20 }]);
+    expect(modelPrice("gpt-5.6-sol").input).toBe(5);
+    setCustomPricing([]);
+    expect(modelPrice("gpt-5.6-sol").input).toBe(builtIn);
+  });
+
+  it("ranks top sessions with range and instance filters", () => {
+    const files = {
+      "sessions/a.jsonl": fileFixture("E:\\work\\demo", "rollout-a", "2026-09-20", [2, 300, 180, 30], 100),
+      "sessions/b.jsonl": fileFixture("E:\\work\\other", "rollout-b", "2026-09-21", [5, 900, 600, 60], 300),
+      "sessions/c.jsonl": fileFixture("E:\\work\\demo", "rollout-c", "2026-09-19", [9, 5000, 4000, 500], 150)
+    };
+    const home = "C:\\codex";
+    const all = topUsageSessions(files, home, {});
+    expect(all.map((row) => row.id)).toEqual(["rollout-c", "rollout-b", "rollout-a"]);
+    expect(all[0]!.totalTokens).toBe(5500);
+    expect(all[0]!.file).toBe(join(home, "sessions", "c.jsonl"));
+    // since 过滤：c(09-19) 落在下限之前被排除
+    const since = topUsageSessions(files, home, { since: "2026-09-20" });
+    expect(since.map((row) => row.id).sort()).toEqual(["rollout-a", "rollout-b"]);
+    // instance 过滤：只统计 demo 目录
+    const demo = topUsageSessions(files, home, { instance: "E:\\work\\demo" });
+    expect(demo.map((row) => row.id).sort()).toEqual(["rollout-a", "rollout-c"]);
+    expect(topUsageSessions(files, home, { limit: 1 })).toHaveLength(1);
+  });
+
+  it("flags budget exceedance from today's local-date usage", () => {
+    const today = localDateKey(Date.now());
+    const prefs = { pricing: [], dailyTokenBudget: null as number | null };
+    const todaySummary = summarizeUsage({
+      "sessions/today.jsonl": fileFixture("E:\\work\\demo", "rollout-today", today, [10, 8000, 0, 200])
+    });
+    expect(usageBudgetStatus(todaySummary, { pricing: [], dailyTokenBudget: 8000 })).toMatchObject({ todayTokens: 8200, exceeded: true });
+    expect(usageBudgetStatus(todaySummary, { pricing: [], dailyTokenBudget: null }).exceeded).toBe(false);
+    // 非今天的用量不计入今日预算
+    expect(usageBudgetStatus(usageSummary(), prefs).todayTokens).toBe(0);
+  });
+
+  it("sanitizes untrusted preference payloads", () => {
+    const prefs = sanitizeUsagePreferences({ pricing: [{ pattern: "  gpt-6 ", input: 2, cachedInput: 0.2, output: 20 }, { pattern: "", input: -1, cachedInput: 0, output: 0 }, "junk"], dailyTokenBudget: 5_000_000 });
+    expect(prefs.pricing).toEqual([{ pattern: "gpt-6", input: 2, cachedInput: 0.2, output: 20 }]);
+    expect(prefs.dailyTokenBudget).toBe(5_000_000);
+    expect(sanitizeUsagePreferences({ dailyTokenBudget: -5 }).dailyTokenBudget).toBeNull();
+    expect(sanitizeUsagePreferences({ dailyTokenBudget: "5000000" }).dailyTokenBudget).toBeNull();
+  });
+
+  it("builds csv and markdown reports", () => {
+    const summary = usageSummary();
+    const csv = buildUsageReportCsv(summary);
+    expect(csv.startsWith("\ufeff")).toBe(true);
+    expect(csv).toContain("按模型");
+    expect(csv).toContain("按模型,gpt-5.6-sol,350,180,35,3");
+    const md = buildUsageReportMarkdown(summary);
+    expect(md).toContain("# Codex 用量报表");
+    expect(md).toContain("| gpt-5.6-sol |");
+    expect(md).toContain("| E:\\work\\other |");
+    expect(md).toContain("估算费用：$");
   });
 });

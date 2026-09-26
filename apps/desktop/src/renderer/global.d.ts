@@ -32,6 +32,12 @@ export interface CodexUsageSummary {
 }
 // 与主进程 codex-usage.ts 的 ThreadUsageDetail 保持同构（codex:thread-usage 的返回值）
 export interface CodexThreadUsage { file: string; input: number; cachedInput: number; output: number; totalTokens: number; requests: number; costUsd: number; cwd: string; updatedAt: number }
+export interface CodexTopSession { id: string; cwd: string; file: string; requests: number; input: number; cachedInput: number; output: number; totalTokens: number; costUsd: number; updatedAt: number }
+// 与主进程 usage-prefs:get/set 的载荷保持同构
+export interface UsagePricingRule { pattern: string; input: number; cachedInput: number; output: number }
+export interface UsagePreferencesPayload { pricing: UsagePricingRule[]; dailyTokenBudget: number | null }
+// 与主进程 conversation-meta.ts 保持同构（conv-meta:get/set 的载荷）
+export interface ConversationMetaPayload { schemaVersion: 1; favorites: string[]; tags: Record<string, string[]> }
 
 declare global {
   interface Window { conversationManager: {
@@ -39,7 +45,9 @@ declare global {
     openExternal(url: string): Promise<void>;
     setAppLanguage(value: "zh" | "en"): Promise<"zh" | "en">;
     dialog: { pickDirectory(payload?: { defaultPath?: string }): Promise<{ directory: string | null }> };
-    stats: { daily(buckets: Record<string, DailyBucket>): Promise<DailyStatsFile>; badges(awards: Record<string, string>): Promise<DailyStatsFile>; codexUsage(payload?: { force?: boolean }): Promise<CodexUsageSummary> };
+    stats: { daily(buckets: Record<string, DailyBucket>): Promise<DailyStatsFile>; badges(awards: Record<string, string>): Promise<DailyStatsFile>; codexUsage(payload?: { force?: boolean }): Promise<CodexUsageSummary>; exportUsageReport(payload: { summary: CodexUsageSummary }): Promise<{ saved: boolean; path?: string }> };
+    usagePrefs: { get(): Promise<UsagePreferencesPayload>; set(prefs: UsagePreferencesPayload): Promise<UsagePreferencesPayload> };
+    convMeta: { get(): Promise<ConversationMetaPayload>; set(meta: ConversationMetaPayload): Promise<ConversationMetaPayload> };
     chatgpt: {
       state(): Promise<PairingState>; clearPairing(): Promise<PairingState>; openChatGpt(): Promise<void>; openConversation(id: string): Promise<void>; readConversation(accountKey: string, id: string): Promise<{ title: string; messages: Array<{ role: string; at: number | null; text: string }> }>; quickSearch(payload: { query?: string; limit?: number }): Promise<{ total: number; rows: Array<{ id: string; accountKey: string; title: string; state: string; createdAt: number | null; updatedAt: number | null; projectId: string | null }> }>; showExtension(): Promise<string>; extensionDirectory(): Promise<string>;
       accounts(): Promise<{ accounts: Array<{ key: string; label: string; isDefault: boolean }> }>;
@@ -71,6 +79,7 @@ declare global {
       exportSessionsArchive(): Promise<{ cancelled: boolean; count?: number; file?: string }>;
       importSessionsArchive(): Promise<{ cancelled: boolean; imported?: number; skipped?: number }>;
       threadUsage(payload: { ids: string[]; rescan?: boolean }): Promise<{ threads: Record<string, CodexThreadUsage> }>;
+      topSessions(payload: { limit?: number; since?: string; instance?: string }): Promise<{ sessions: CodexTopSession[] }>;
       openSessionFile(payload: { id: string; mode: "file" | "folder" }): Promise<{ opened: boolean }>;
       onArchiveProgress(callback: (progress: { phase: string; files: number }) => void): () => void;
     };

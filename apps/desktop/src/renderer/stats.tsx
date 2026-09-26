@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { echarts, chartPalette, chartTooltip, type ChartPalette } from "./echarts.js";
 import { relativeTime } from "./conversation-viewer.js";
 import { Chart } from "./chart.js";
@@ -181,7 +181,7 @@ function shortDate(key: string): string {
   return `${Number(month)}/${Number(day)}`;
 }
 
-function buildHeatmap(daily: DailyStatsFile | null, computed: Record<string, DailyBucket>, selected: HeatWindow, palette: ChartPalette): echarts.EChartsCoreOption {
+function buildHeatmap(daily: DailyStatsFile | null, computed: Record<string, DailyBucket>, selected: HeatWindow, palette: ChartPalette, highlightDate?: string | null): echarts.EChartsCoreOption {
   const range = heatRange(selected);
   const rows = heatSeries(range, computed, daily);
   const peak = rows.reduce((max, row) => Math.max(max, row.bucket.chatgptNew + row.bucket.codexNew), 0);
@@ -219,7 +219,14 @@ function buildHeatmap(daily: DailyStatsFile | null, computed: Record<string, Dai
       data,
       itemStyle: { borderRadius: 3 },
       emphasis: { itemStyle: { borderColor: palette.text, borderWidth: 1 } }
-    }]
+    },
+    ...(highlightDate ? [{
+      type: "scatter", coordinateSystem: "calendar",
+      data: [[highlightDate, 1]],
+      symbolSize: 17,
+      silent: true,
+      itemStyle: { color: "rgba(0,0,0,0)", borderColor: palette.text, borderWidth: 2 }
+    }] : [])]
   };
 }
 
@@ -245,7 +252,10 @@ function EmptyChart() {
   return <div className="chart-empty"><strong>{t("暂无数据")}</strong><span>{t("先在 ChatGPT 或 Codex 页完成一次同步，再回来看统计。")}</span></div>;
 }
 
-export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) {
+export function StatsPage({ onNavigate }: { onNavigate(page: Platform, seed?: { searchId?: string; instance?: string }): void }) {
+  // 「按日期」行点击 → 热力图高亮该日期；再次点击同日期或 ✕ 取消
+  const [heatFocusDate, setHeatFocusDate] = useState<string | null>(null);
+  const heatCardRef = useRef<HTMLElement | null>(null);
   const dark = useDarkMode();
   const [snapshot, setSnapshot] = useState<StatsSnapshot | null>(snapshotCache);
   const [loading, setLoading] = useState(false);
@@ -254,6 +264,12 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
   const [heatWindow, setHeatWindow] = useState<HeatWindow>("12m");
   // Codex 用量卡片自带加载逻辑；「刷新统计」通过递增 signal 触发它重扫
   const [usageSignal, setUsageSignal] = useState(0);
+  useEffect(() => {
+    if (!heatFocusDate) return;
+    const { start, end } = heatRange(heatWindow);
+    const target = new Date(heatFocusDate + "T12:00:00").getTime();
+    if (target < start || target > end) setHeatWindow("12m");
+  }, [heatFocusDate, heatWindow]);
   const refresh = useCallback(() => {
     setLoading(true);
     setUsageSignal((signal) => signal + 1);
@@ -267,7 +283,7 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
   const trend = useMemo(() => buildTrend(snapshot?.records ?? [], Number(trendRange), trendScope, palette), [snapshot, trendRange, trendScope, palette]);
   const share = useMemo(() => buildShare(summary, palette), [summary, palette]);
   const projectBars = useMemo(() => snapshot ? buildProjectBars(snapshot, 8, palette) : null, [snapshot, palette]);
-  const heatmap = useMemo(() => buildHeatmap(snapshot?.daily ?? null, computedBuckets, heatWindow, palette), [snapshot, computedBuckets, heatWindow, palette]);
+  const heatmap = useMemo(() => buildHeatmap(snapshot?.daily ?? null, computedBuckets, heatWindow, palette, heatFocusDate), [snapshot, computedBuckets, heatWindow, palette, heatFocusDate]);
   const heatStats = useMemo(() => heatSummary(heatSeries(heatRange(heatWindow), computedBuckets, snapshot?.daily ?? null)), [snapshot, computedBuckets, heatWindow]);
   const hasData = summary.total > 0;
 
@@ -311,11 +327,21 @@ export function StatsPage({ onNavigate }: { onNavigate(page: Platform): void }) 
       <article className="kpi-card"><strong>{formatCount(summary.weekly)}</strong><span>{t("本周新增（7 天）")}</span></article>
     </div>
 
-    <CodexUsageCard palette={palette} refreshSignal={usageSignal} />
+    <CodexUsageCard
+      palette={palette}
+      refreshSignal={usageSignal}
+      onOpenSession={(id) => onNavigate("codex", { searchId: id })}
+      onOpenInstance={(cwd) => onNavigate("codex", { instance: cwd })}
+      onOpenDate={(date) => {
+        setHeatFocusDate((old) => (old === date ? null : date));
+        requestAnimationFrame(() => heatCardRef.current?.scrollIntoView({ block: "start" }));
+      }}
+    />
 
-    <article className="stats-card">
+    <article className="stats-card" ref={heatCardRef}>
       <h2>{t("会话热力图")}
         <span className="head-extra">
+          {heatFocusDate && <button type="button" className="heat-focus-chip" onClick={() => setHeatFocusDate(null)} title={t("取消聚焦")}>◈ {shortDate(heatFocusDate)} ✕</button>}
           <Segmented<HeatWindow> value={heatWindow} options={HEAT_WINDOWS.map(([value, label]) => [value, t(label)] as [HeatWindow, string])} onChange={setHeatWindow} aria-label={t("会话热力图")} />
           <span className="heat-legend" title={`${t("少")} → ${t("多")}`}>{t("少")}<i></i><i></i><i></i><i></i><i></i>{t("多")}</span>
         </span>

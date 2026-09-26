@@ -29,6 +29,15 @@ describe("conversation domain", () => {
     expect(result).toEqual([base]);
   });
 
+  it("matches the conversation id as well as the title", () => {
+    const record: ManagedConversation = { ...base, id: "01a0d4807cf170a3b860fa147b90d09e" };
+    expect(filterConversations([record], { state: "active", query: "old task" }).map((r) => r.id)).toEqual([record.id]);
+    expect(filterConversations([record], { state: "active", query: record.id }).map((r) => r.id)).toEqual([record.id]);
+    // 短查询不做 ID 匹配（避免 UUID 片段误命中），但仍可命中标题
+    expect(filterConversations([record], { state: "active", query: "01a0" })).toEqual([]);
+    expect(filterConversations([record], { state: "active", query: "no-match" })).toEqual([]);
+  });
+
   it("protects pinned, current and running records from bulk selection", () => {
     expect(bulkSelectableIds([
       base,

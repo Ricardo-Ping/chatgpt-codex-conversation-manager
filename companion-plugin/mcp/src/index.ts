@@ -66,7 +66,7 @@ function titles(records: CodexThread[], ids: string[]): Array<{ id: string; titl
   });
 }
 
-const server = new McpServer({ name: "conversation-manager", version: "0.7.14" });
+const server = new McpServer({ name: "conversation-manager", version: "0.7.15" });
 
 server.registerTool("desktop_status", {
   description: "Check whether the local Codex App Server is available.",
@@ -140,6 +140,25 @@ for (const [name, action, destructive] of [
 }
 
 const accountKeySchema = z.string().regex(/^[a-f0-9]{64}$/).optional();
+
+server.registerTool("codex_token_usage", {
+  description: "Read real Codex token usage aggregated from local session logs: totals plus optional top sessions by token consumption. Requires the desktop app once to build the local cache.",
+  inputSchema: {
+    top: z.number().int().min(1).max(50).optional(),
+    since: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    instance: z.string().max(300).optional()
+  },
+  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+}, async ({ top, since, instance }) => {
+  const result = await local<{ summary: { scannedFiles: number; sessions: number; requests: number; inputTokens: number; cachedInputTokens: number; outputTokens: number; totalTokens: number; costUsd: number }; top?: Array<{ id: string; cwd: string; requests: number; input: number; cachedInput: number; output: number; totalTokens: number; costUsd: number }> }>("codex.usage", { top, since, instance });
+  const payload = {
+    totals: { requests: result.summary.requests, inputTokens: result.summary.inputTokens, cachedInputTokens: result.summary.cachedInputTokens, outputTokens: result.summary.outputTokens, totalTokens: result.summary.totalTokens, estimatedCostUsd: Number(result.summary.costUsd.toFixed(4)) },
+    scannedFiles: result.summary.scannedFiles,
+    sessions: result.summary.sessions,
+    topSessions: result.top?.map((row) => ({ id: row.id, instance: row.cwd, requests: row.requests, inputTokens: row.input, outputTokens: row.output, totalTokens: row.totalTokens, estimatedCostUsd: Number(row.costUsd.toFixed(4)) }))
+  };
+  return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+});
 
 server.registerTool("chatgpt_status", {
   description: "Check the Conversation Manager desktop app: pairing state, browser-extension connectivity, and synced ChatGPT accounts.",

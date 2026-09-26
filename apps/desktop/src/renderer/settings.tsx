@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PairingState } from "@conversation-manager/chatgpt-bridge-server";
 import type { ThemePreference, UpdateState } from "./global.js";
+import type { UsagePricingRule } from "./global.js";
 import { relativeTime } from "./conversation-viewer.js";
 import { t, type Lang } from "./strings.js";
 import { Segmented } from "./segmented.js";
@@ -41,6 +42,45 @@ function LogCard() {
 
 function formatBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 
+/** Codex 用量估算的自定义价目表（按模型名前缀匹配，$/百万 Tokens）与每日用量预算提醒 */
+function UsagePrefsCard() {
+  const [pricing, setPricing] = useState<UsagePricingRule[]>([]);
+  const [budgetEnabled, setBudgetEnabled] = useState(false);
+  const [budgetWan, setBudgetWan] = useState("500");
+  const [note, setNote] = useState("");
+  useEffect(() => { void window.conversationManager.usagePrefs.get().then((prefs) => { setPricing(prefs.pricing); setBudgetEnabled(prefs.dailyTokenBudget !== null); setBudgetWan(prefs.dailyTokenBudget !== null ? String(Math.round(prefs.dailyTokenBudget / 10000)) : "500"); }).catch(() => {}); }, []);
+  const updateRule = (index: number, patch: Partial<UsagePricingRule>): void => setPricing((rows) => rows.map((row, i) => i === index ? { ...row, ...patch } : row));
+  const save = async (): Promise<void> => {
+    for (const rule of pricing) {
+      if (!rule.pattern.trim() || ![rule.input, rule.cachedInput, rule.output].every((value) => Number.isFinite(value) && value >= 0)) { setNote(t("价目规则无效：模型前缀不能为空，价格需为非负数字")); return; }
+    }
+    const budgetValue = Number(budgetWan);
+    if (budgetEnabled && (!Number.isFinite(budgetValue) || budgetValue <= 0)) { setNote(t("每日预算需为正数（万 tokens）")); return; }
+    try {
+      await window.conversationManager.usagePrefs.set({ pricing: pricing.map((rule) => ({ ...rule, pattern: rule.pattern.trim() })), dailyTokenBudget: budgetEnabled ? Math.round(budgetValue * 10000) : null });
+      setNote(t("已保存用量偏好：之后的统计将按新价目计算"));
+    } catch (cause) { setNote(friendlyError(cause)); }
+  };
+  return <article><h2>{t("Codex 用量与预算")}</h2><p>{t("价目表按模型名前缀匹配（$/百万 Tokens），内置价格取自 OpenAI 公开定价页；如需覆盖可添加自定义规则，并可设置每日用量预算提醒。")}</p>
+    <div className="pricing-editor">
+      <div className="pricing-row head"><span>{t("模型前缀")}</span><span>{t("输入 $/M")}</span><span>{t("缓存 $/M")}</span><span>{t("输出 $/M")}</span><span /></div>
+      {pricing.map((rule, index) => <div className="pricing-row" key={index}>
+        <input value={rule.pattern} onChange={(event) => updateRule(index, { pattern: event.target.value })} aria-label={t("模型前缀")} placeholder="gpt-5.6" />
+        <input type="number" min={0} step="any" value={rule.input} onChange={(event) => updateRule(index, { input: event.target.value === "" ? 0 : Number(event.target.value) })} aria-label={t("输入 $/M")} />
+        <input type="number" min={0} step="any" value={rule.cachedInput} onChange={(event) => updateRule(index, { cachedInput: event.target.value === "" ? 0 : Number(event.target.value) })} aria-label={t("缓存 $/M")} />
+        <input type="number" min={0} step="any" value={rule.output} onChange={(event) => updateRule(index, { output: event.target.value === "" ? 0 : Number(event.target.value) })} aria-label={t("输出 $/M")} />
+        <button type="button" onClick={() => setPricing((rows) => rows.filter((_, i) => i !== index))} aria-label={t("删除")}>✕</button>
+      </div>)}
+      {!pricing.length && <p className="pricing-empty">{t("暂无自定义规则，费用按内置价格估算。")}</p>}
+      <div className="card-actions"><button onClick={() => setPricing((rows) => [...rows, { pattern: "", input: 1.25, cachedInput: 0.125, output: 10 }])}>{t("添加规则")}</button></div>
+    </div>
+    <label className="toggle"><input type="checkbox" checked={budgetEnabled} onChange={(event) => setBudgetEnabled(event.target.checked)} />{t("每日用量预算提醒")}</label>
+    {budgetEnabled && <div className="pricing-budget"><input type="number" min={0} step="any" value={budgetWan} onChange={(event) => setBudgetWan(event.target.value)} aria-label={t("每日预算（万 tokens）")} /><span>{t("万 tokens / 天")}</span></div>}
+    {note && <p className="pair-feedback">{note}</p>}
+    <div className="card-actions"><button onClick={() => void save()}>{t("保存价目与预算")}</button></div>
+  </article>;
+}
+
 export function Settings({ version, lang, onLanguage, onCodexStatus }: { version: string; lang: Lang; onLanguage(value: Lang): void; onCodexStatus?(available: boolean): void }) {
   const [update, setUpdate] = useState<UpdateState | null>(null); const [bridge, setBridge] = useState<PairingState | null>(null); const [cache, setCache] = useState<{ accounts: number; records: number; bytes: number; lastSyncedAt: number | null; lastFullSyncedAt: number | null } | null>(null); const [codexStatus, setCodexStatus] = useState<{ available: boolean; message: string; command: string } | null>(null); const [theme, setTheme] = useState<ThemePreference>("system"); const [pairMessage, setPairMessage] = useState("");
   const extensionDirectory = useExtensionDirectory();
@@ -58,6 +98,7 @@ export function Settings({ version, lang, onLanguage, onCodexStatus }: { version
     <article><h2>{t("浏览器桥接")}</h2><p>{bridge?.connected ? `${t("已连接")}${bridge.extensionVersion && bridge.extensionVersion !== version ? ` · ${t("扩展 v{ext} · 需重载", { ext: bridge.extensionVersion })}` : ""}` : bridge?.paired ? t("已配对，等待浏览器") : t("尚未配对")}</p>{!bridge?.connected && <p>{t("无需手动配对：桌面端运行时，浏览器扩展会自动完成连接。")}</p>}{bridge?.connected && bridge.extensionVersion && bridge.extensionVersion !== version && <p>{t("自动重载后仍是旧版本？说明 Chrome 加载的是旧扩展目录：点下方「打开扩展目录」，在 chrome://extensions 移除旧条目，再「加载已解压的扩展程序」选择该目录。")}</p>}{pairMessage && <p className="pair-feedback">{pairMessage}</p>}<ExtensionPath label={t("扩展目录")} value={extensionDirectory} /><div className="card-actions"><button onClick={() => { setPairMessage(t("正在清除…")); void window.conversationManager.chatgpt.clearPairing().then((value) => { setBridge(value); setPairMessage(t("已清除配对。桌面端运行时，扩展会在后台自动重新配对。")); }); }}>{t("清除配对")}</button><button onClick={() => void window.conversationManager.chatgpt.showExtension()}>{t("打开扩展目录")}</button></div></article>
     <article><h2>{t("ChatGPT 缓存")}</h2><p>{cache ? `${t("{n} 条记录", { n: cache.records })} · ${formatBytes(cache.bytes)}${cache.lastSyncedAt ? ` · ${t("{t}同步", { t: relativeTime(cache.lastSyncedAt) })}` : ""}${cache.lastFullSyncedAt ? ` · ${t("{t}完整校准", { t: relativeTime(cache.lastFullSyncedAt) })}` : ""}` : t("正在读取…")}</p><div className="card-actions"><button onClick={() => void window.conversationManager.chatgpt.clearCache().then(setCache)}>{t("清除缓存")}</button></div></article>
     <article><h2>{t("Codex 后端")}</h2><p>{codexStatus?.message || t("正在自动检测统一桌面客户端…")}</p><ExtensionPath label={t("Codex 命令")} value={codexStatus?.command || ""} /><div className="card-actions">{codexStatus?.available === false && <button onClick={() => void window.conversationManager.codex.selectCommand().then(readCodexStatus)}>{t("手动选择（兜底）")}</button>}</div></article>
+    <UsagePrefsCard />
     <article><h2>{t("自动更新")}</h2><p>{update?.message}</p><label className="toggle"><input type="checkbox" checked={update?.autoUpdate ?? true} onChange={(event) => void window.conversationManager.updates.setAutoUpdate(event.target.checked).then(setUpdate)}/>{t("默认自动检查更新")}</label><div className="card-actions">{update?.autoUpdate === false && <button onClick={() => void window.conversationManager.updates.check()}>{t("立即检查")}</button>}{update?.phase === "available" && !update.canAutoInstall && /Mac/i.test(navigator.platform) && <button onClick={() => void window.conversationManager.updates.download().catch(() => {})}>{t("下载更新")}</button>}{update?.phase === "available" && !update.canAutoInstall && <button onClick={() => void window.conversationManager.updates.openRelease()}>{t("打开下载页")}</button>}{update?.phase === "downloaded" && !update.canAutoInstall && /Mac/i.test(navigator.platform) && <button onClick={() => void window.conversationManager.updates.install().catch(() => {})}>{t("重启安装")}</button>}</div></article>
     <article><h2>{t("开机启动")}</h2><p>{t("登录系统时自动启动 Conversation Manager，默认关闭。")}</p><div className="card-actions"><label className="toggle"><input type="checkbox" checked={loginItem} onChange={(event) => void window.conversationManager.startup.set(event.currentTarget.checked).then(setLoginItem).catch(() => {})}/>{t("开机时自动启动")}</label></div></article>
     <article><h2>{t("数据备份")}</h2><p>{t("导出或恢复应用数据（缓存索引、偏好设置），用于备份或迁移到其他设备。")}</p><div className="card-actions"><button onClick={async () => { const picked = await window.conversationManager.dialog.pickDirectory(); if (!picked.directory) return; try { const r = await window.conversationManager.data.exportData(picked.directory); setPairMessage(t("已导出 {n} 个数据文件到 {dir}", { n: r.copied, dir: r.directory })); } catch (cause) { setPairMessage(friendlyError(cause)); } }}>{t("导出数据")}</button><button onClick={async () => { const picked = await window.conversationManager.dialog.pickDirectory(); if (!picked.directory) return; try { const r = await window.conversationManager.data.importData(picked.directory); setPairMessage(t("已恢复 {n} 个数据文件（缓存与部分设置在重启后完全生效）", { n: r.restored })); } catch (cause) { setPairMessage(friendlyError(cause)); } }}>{t("恢复数据")}</button></div></article>

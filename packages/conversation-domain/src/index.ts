@@ -47,7 +47,10 @@ export function filterConversations(records: ManagedConversation[], filter: Conv
     if (record.state !== filter.state) return false;
     if (query) {
       const haystack = `${record.title}\n${record.preview ?? ""}`.toLocaleLowerCase();
-      if (!haystack.includes(query)) return false;
+      // 长查询（≥8 字符）额外匹配会话 ID：短关键词只搜标题/摘要，避免 UUID 里
+      // 常见的单字母片段把结果放大到全量
+      const idHit = query.length >= 8 && record.id.toLocaleLowerCase().includes(query);
+      if (!haystack.includes(query) && !idHit) return false;
     }
     return cutoff === null || (record.updatedAt !== null && record.updatedAt < cutoff);
   });

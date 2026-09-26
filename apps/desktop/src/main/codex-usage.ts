@@ -62,10 +62,26 @@ function eventDateKey(iso: string): string | null {
   return Number.isFinite(ms) ? localDateKey(ms) : null;
 }
 
-// ---- 费用估算：按公开 API 价格（USD / 百万 Tokens）。取第一个命中的模式；
-// 未命中走兜底价。只是参考值，订阅额度内实际并不按 Token 计费。 ----
+// ---- 费用估算：按 OpenAI 公开定价页的 API 价格（USD / 百万 Tokens，标准档）。
+// 来源：https://developers.openai.com/api/docs/pricing（2026-09 校对）。
+// 取第一个命中的模式，未命中走兜底价；订阅额度内实际并不按 Token 计费，
+// 这里仅用于本地估算参考。长上下文 / 批处理 / Fast 档的价格差异未纳入。 ----
 export interface ModelPrice { input: number; cachedInput: number; output: number }
 const PRICING: Array<[RegExp, ModelPrice]> = [
+  // GPT-6 家族（astra 旗舰 / sol 标准 / luna 轻量）
+  [/^gpt-6-astra/i, { input: 10, cachedInput: 1, output: 50 }],
+  [/^gpt-6-sol/i, { input: 2, cachedInput: 0.2, output: 10 }],
+  [/^gpt-6-luna/i, { input: 0.1, cachedInput: 0.01, output: 0.5 }],
+  [/^gpt-6/i, { input: 2, cachedInput: 0.2, output: 10 }],
+  // GPT-5.6 家族（sol / terra / luna）
+  [/^gpt-5\.6-sol/i, { input: 4, cachedInput: 0.4, output: 20 }],
+  [/^gpt-5\.6-terra/i, { input: 2, cachedInput: 0.2, output: 12 }],
+  [/^gpt-5\.6-luna/i, { input: 0.2, cachedInput: 0.02, output: 1.2 }],
+  [/^gpt-5\.6/i, { input: 4, cachedInput: 0.4, output: 20 }],
+  // 上一代与专用模型
+  [/^gpt-5\.5/i, { input: 5, cachedInput: 0.5, output: 30 }],
+  [/^gpt-5\.3-codex/i, { input: 1.75, cachedInput: 0.175, output: 14 }],
+  [/^gpt-5\.4/i, { input: 2.5, cachedInput: 0.25, output: 15 }],
   [/^gpt-4(o|\.1)/i, { input: 2.5, cachedInput: 1.25, output: 10 }],
   [/^o3-min/i, { input: 1.1, cachedInput: 0.275, output: 4.4 }],
   [/^o4-min/i, { input: 1.1, cachedInput: 0.275, output: 4.4 }],
@@ -73,7 +89,19 @@ const PRICING: Array<[RegExp, ModelPrice]> = [
 ];
 export const FALLBACK_PRICE: ModelPrice = { input: 1.25, cachedInput: 0.125, output: 10 };
 
+// ---- 用户自定义价目表：按模型名前缀匹配，优先于内置表（长前缀优先，保证更具体
+// 的规则先命中）。持久化在 userData 的偏好文件里，主进程启动与保存时注入。 ----
+export interface PricingRule { pattern: string; input: number; cachedInput: number; output: number }
+let customPricing: PricingRule[] = [];
+export function setCustomPricing(rules: PricingRule[]): void {
+  customPricing = [...rules].sort((a, b) => b.pattern.length - a.pattern.length);
+}
+
 export function modelPrice(model: string): ModelPrice {
+  const lower = model.toLowerCase();
+  for (const rule of customPricing) {
+    if (rule.pattern && lower.startsWith(rule.pattern.toLowerCase())) return { input: rule.input, cachedInput: rule.cachedInput, output: rule.output };
+  }
   for (const [pattern, price] of PRICING) if (pattern.test(model)) return price;
   return FALLBACK_PRICE;
 }
@@ -363,6 +391,150 @@ export async function scanCodexUsage(codexHome: string, cacheFile: string | null
 
 export function emptyUsageSummary(): CodexUsageSummary {
   return summarizeUsage({});
+}
+
+// ---- 用户偏好：自定义价目表 + 每日用量预算（userData/codex-usage-preferences.json）----
+
+export interface UsagePreferences { pricing: PricingRule[]; dailyTokenBudget: number | null }
+
+export function sanitizeUsagePreferences(raw: unknown): UsagePreferences {
+  const row = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const pricing: PricingRule[] = [];
+  if (Array.isArray(row.pricing)) {
+    for (const item of row.pricing.slice(0, 20)) {
+      if (!item || typeof item !== "object") continue;
+      const rule = item as Record<string, unknown>;
+      const pattern = typeof rule.pattern === "string" ? rule.pattern.trim().slice(0, 60) : "";
+      const num = (v: unknown): number => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : Number.NaN;
+      const input = num(rule.input); const cachedInput = num(rule.cachedInput); const output = num(rule.output);
+      if (!pattern || Number.isNaN(input) || Number.isNaN(cachedInput) || Number.isNaN(output)) continue;
+      pricing.push({ pattern, input, cachedInput, output });
+    }
+  }
+  const budget = row.dailyTokenBudget;
+  const dailyTokenBudget = typeof budget === "number" && Number.isFinite(budget) && budget >= 0 ? budget : null;
+  return { pricing, dailyTokenBudget };
+}
+
+export async function loadUsagePreferences(file: string): Promise<UsagePreferences> {
+  try { return sanitizeUsagePreferences(JSON.parse(await readFile(file, "utf8"))); } catch { return { pricing: [], dailyTokenBudget: null }; }
+}
+
+export async function saveUsagePreferences(file: string, prefs: UsagePreferences): Promise<void> {
+  await mkdir(dirname(file), { recursive: true });
+  const temp = `${file}.tmp`;
+  await writeFile(temp, `${JSON.stringify(prefs, null, 2)}\n`, "utf8");
+  await rename(temp, file);
+}
+
+/** 今日用量与预算比对（今日 = 本地时区的当前日期） */
+export function usageBudgetStatus(summary: CodexUsageSummary, prefs: UsagePreferences, now = Date.now()): { budget: number | null; todayTokens: number; exceeded: boolean } {
+  const today = localDateKey(now);
+  let todayTokens = 0;
+  for (const day of summary.days) {
+    if (day.date !== today) continue;
+    for (const cells of Object.values(day.instances)) {
+      for (const cell of Object.values(cells)) { todayTokens += cell.input + cell.output; }
+    }
+  }
+  const budget = prefs.dailyTokenBudget;
+  return { budget, todayTokens, exceeded: budget !== null && budget > 0 && todayTokens > budget };
+}
+
+// ---- 线程级排行：指定范围/实例内最耗 Token 的会话 ----
+
+export interface TopSessionDetail {
+  id: string;
+  cwd: string;
+  file: string;
+  requests: number;
+  input: number;
+  cachedInput: number;
+  output: number;
+  totalTokens: number;
+  costUsd: number;
+  updatedAt: number;
+}
+
+/** 按合计 Tokens 降序返回最耗会话。since 为本地日期下限（含）；instance 为精确工作目录；
+ * 范围过滤后没有用量的会话不会出现在结果里。 */
+export function topUsageSessions(files: Record<string, FileUsage>, codexHome: string, options: { since?: string; instance?: string; limit?: number } = {}): TopSessionDetail[] {
+  const limit = Math.max(1, Math.min(50, Math.floor(options.limit ?? 10)));
+  const rows: TopSessionDetail[] = [];
+  for (const [path, usage] of Object.entries(files)) {
+    if (options.instance && usage.cwd !== options.instance) continue;
+    const totals = { requests: 0, input: 0, cachedInput: 0, output: 0, costUsd: 0 };
+    for (const [date, models] of Object.entries(usage.days)) {
+      if (options.since && date < options.since) continue;
+      for (const [model, values] of Object.entries(models)) {
+        totals.requests += values[0];
+        totals.input += values[1];
+        totals.cachedInput += values[2];
+        totals.output += values[3];
+        totals.costUsd += estimateCost(model, { input: values[1], cachedInput: values[2], output: values[3] });
+      }
+    }
+    if (totals.requests === 0 || totals.input + totals.output === 0) continue;
+    rows.push({
+      id: usage.rolloutId || usage.sessionId,
+      cwd: usage.cwd,
+      file: join(codexHome, ...path.split("/")),
+      updatedAt: Math.round(usage.mtimeMs),
+      requests: totals.requests,
+      input: totals.input,
+      cachedInput: totals.cachedInput,
+      output: totals.output,
+      totalTokens: totals.input + totals.output,
+      costUsd: totals.costUsd
+    });
+  }
+  return rows.sort((a, b) => b.totalTokens - a.totalTokens).slice(0, limit);
+}
+
+// ---- 报表导出：CSV / Markdown ----
+
+function csvCell(value: string | number): string {
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function csvRow(values: Array<string | number>): string { return values.map(csvCell).join(","); }
+
+const REPORT_COLUMNS = ["输入 Tokens", "缓存输入 Tokens", "输出 Tokens", "请求", "估算费用 USD"] as const;
+
+/** 生成人类可读的用量报表（Markdown）。CSV 见 buildUsageReportCsv。 */
+export function buildUsageReportMarkdown(summary: CodexUsageSummary): string {
+  const lines: string[] = [`# Codex 用量报表`, "", `- 生成时间：${new Date(summary.generatedAt).toLocaleString()}`, `- 扫描文件：${summary.scannedFiles} · 会话 ${summary.sessions}（分叉 ${summary.forkedSessions}）`, `- 合计：输入 ${summary.inputTokens} / 缓存输入 ${summary.cachedInputTokens} / 输出 ${summary.outputTokens} / 请求 ${summary.requests}`, `- 估算费用：$${summary.costUsd.toFixed(4)}`, ""];
+  const table = (title: string, rows: Array<{ name: string; input: number; cachedInput: number; output: number; requests: number; costUsd: number; totalTokens: number }>): void => {
+    lines.push(`## ${title}`, "", `| ${["名称", ...REPORT_COLUMNS, "合计 Tokens"].join(" | ")} |`, `| ${["---", ...REPORT_COLUMNS.map(() => "---:"), "---:"].join(" | ")} |`);
+    for (const row of rows) lines.push(`| ${[row.name, row.input, row.cachedInput, row.output, row.requests, `$${row.costUsd.toFixed(4)}`, row.totalTokens].join(" | ")} |`);
+    lines.push("");
+  };
+  table("按模型", summary.models.map((row) => ({ name: row.model, input: row.input, cachedInput: row.cachedInput, output: row.output, requests: row.requests, costUsd: row.costUsd, totalTokens: row.totalTokens })));
+  table("按实例", summary.instances.map((row) => ({ name: row.cwd || "未知", input: row.input, cachedInput: row.cachedInput, output: row.output, requests: row.requests, costUsd: row.costUsd, totalTokens: row.totalTokens })));
+  table("按日期", summary.days.map((day) => {
+    const totals = { input: 0, cachedInput: 0, output: 0, requests: 0, costUsd: 0 };
+    for (const cells of Object.values(day.instances)) for (const cell of Object.values(cells)) { totals.input += cell.input; totals.cachedInput += cell.cachedInput; totals.output += cell.output; totals.requests += cell.requests; totals.costUsd += cell.costUsd; }
+    return { name: day.date, ...totals, totalTokens: totals.input + totals.output };
+  }));
+  return `${lines.join("\n")}\n`;
+}
+
+/** CSV 版报表：带 BOM 便于 Excel 识别 UTF-8；分节 layout 与 Markdown 一致。 */
+export function buildUsageReportCsv(summary: CodexUsageSummary): string {
+  const lines: string[] = [csvRow(["节", "名称", ...REPORT_COLUMNS, "合计 Tokens"])];
+  const section = (label: string, rows: Array<{ name: string; input: number; cachedInput: number; output: number; requests: number; costUsd: number; totalTokens: number }>): void => {
+    for (const row of rows) lines.push(csvRow([label, row.name, row.input, row.cachedInput, row.output, row.requests, row.costUsd.toFixed(4), row.totalTokens]));
+  };
+  section("按模型", summary.models.map((row) => ({ name: row.model, input: row.input, cachedInput: row.cachedInput, output: row.output, requests: row.requests, costUsd: row.costUsd, totalTokens: row.totalTokens })));
+  section("按实例", summary.instances.map((row) => ({ name: row.cwd || "未知", input: row.input, cachedInput: row.cachedInput, output: row.output, requests: row.requests, costUsd: row.costUsd, totalTokens: row.totalTokens })));
+  section("按日期", summary.days.map((day) => {
+    const totals = { input: 0, cachedInput: 0, output: 0, requests: 0, costUsd: 0 };
+    for (const cells of Object.values(day.instances)) for (const cell of Object.values(cells)) { totals.input += cell.input; totals.cachedInput += cell.cachedInput; totals.output += cell.output; totals.requests += cell.requests; totals.costUsd += cell.costUsd; }
+    return { name: day.date, ...totals, totalTokens: totals.input + totals.output };
+  }));
+  section("总计", [{ name: "全部", input: summary.inputTokens, cachedInput: summary.cachedInputTokens, output: summary.outputTokens, requests: summary.requests, costUsd: summary.costUsd, totalTokens: summary.totalTokens }]);
+  return `\ufeff${lines.join("\n")}\n`;
 }
 
 // ---- 线程级索引：Codex 任务列表的会话 ID → rollout 文件与单文件用量 ----

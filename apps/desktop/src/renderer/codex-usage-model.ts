@@ -5,7 +5,18 @@ import type { Lang } from "./strings.js";
  * 全部输入来自主进程的 CodexUsageSummary，这里不做任何 I/O。 */
 
 export type UsageRange = "7" | "30" | "90" | "all";
+export type UsageDimension = "total" | "model";
 export const USAGE_RANGES: Array<[UsageRange, string]> = [["7", "近 7 天"], ["30", "近 30 天"], ["90", "近 90 天"], ["all", "全部"]];
+
+/** 范围筛选的本地日期下限（YYYY-MM-DD，含当天）；range="all" 返回空串表示不设下限。
+ * cutoff 用 setDate 逐日回退后对齐本地零点：跨夏令时减固定毫秒会让日期偏移一天 */
+export function rangeCutoffKey(range: UsageRange, now = Date.now()): string {
+  if (range === "all") return "";
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (Number(range) - 1));
+  return localDateKey(start.getTime());
+}
 
 /** 中文习惯用亿/万（与官方账单口径一致），英文用 K/M/B 紧凑记法 */
 export function formatTokens(value: number, lang: Lang): string {
@@ -53,6 +64,9 @@ export interface UsageView {
   dayRows: UsageViewDay[];
   models: UsageViewRow[];
   instances: UsageViewRow[];
+  /** 每日×模型合计 Tokens / 请求（按 modelSeries 顺序对齐 series 索引），供堆叠图使用 */
+  modelSeriesTokens: Array<{ model: string; data: number[] }>;
+  modelSeriesRequests: Array<{ model: string; data: number[] }>;
 }
 
 const zeroTotals = (): UsageViewTotals => ({ requests: 0, input: 0, cachedInput: 0, output: 0, costUsd: 0, totalTokens: 0 });
@@ -69,16 +83,9 @@ function addCell(target: UsageViewTotals, cell: CodexUsageCell): void {
 /** 范围 + 实例筛选后的视图。days 升序、dayRows 降序（表格 newest-first）、
  * models / instances 按合计 Tokens 降序。range="all" 表示不设下限。 */
 export function buildUsageView(summary: CodexUsageSummary | null, range: UsageRange, instance: string): UsageView {
-  const view: UsageView = { totals: zeroTotals(), series: [], dayRows: [], models: [], instances: [] };
+  const view: UsageView = { totals: zeroTotals(), series: [], dayRows: [], models: [], instances: [], modelSeriesTokens: [], modelSeriesRequests: [] };
   if (!summary) return view;
-  // cutoff 用 setDate 逐日回退后对齐本地零点：跨夏令时减固定毫秒会让日期偏移一天
-  let cutoff = "";
-  if (range !== "all") {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - (Number(range) - 1));
-    cutoff = localDateKey(start.getTime());
-  }
+  const cutoff = rangeCutoffKey(range);
   const models = new Map<string, UsageViewTotals>();
   const instances = new Map<string, UsageViewTotals>();
   const instanceBucket = (cwd: string): UsageViewTotals => {
@@ -86,9 +93,13 @@ export function buildUsageView(summary: CodexUsageSummary | null, range: UsageRa
     if (!bucket) { bucket = zeroTotals(); instances.set(cwd, bucket); }
     return bucket;
   };
+  // 每日×模型：按天收集，天通过完备性检查后一起落位（索引与 series 对齐）
+  const modelSeriesTokens = new Map<string, number[]>();
+  const modelSeriesRequests = new Map<string, number[]>();
   for (const day of summary.days as CodexUsageDay[]) {
     if (cutoff && day.date < cutoff) continue;
     const dayTotals = zeroTotals();
+    const dayModels = new Map<string, { tokens: number; requests: number }>();
     for (const [cwd, cells] of Object.entries(day.instances)) {
       if (instance !== "all" && cwd !== instance) continue;
       for (const [model, cell] of Object.entries(cells)) {
@@ -97,14 +108,36 @@ export function buildUsageView(summary: CodexUsageSummary | null, range: UsageRa
         if (!modelBucket) { modelBucket = zeroTotals(); models.set(model, modelBucket); }
         addCell(modelBucket, cell);
         addCell(instanceBucket(cwd), cell);
+        const perDay = dayModels.get(model) ?? { tokens: 0, requests: 0 };
+        perDay.tokens += cell.input + cell.output;
+        perDay.requests += cell.requests;
+        dayModels.set(model, perDay);
       }
     }
     if (dayTotals.requests > 0 || dayTotals.totalTokens > 0) {
+      const index = view.series.length;
       view.series.push({ date: day.date, ...dayTotals });
       view.dayRows.unshift({ date: day.date, ...dayTotals });
+      for (const [model, perDay] of dayModels) {
+        let tokens = modelSeriesTokens.get(model);
+        if (!tokens) { tokens = []; modelSeriesTokens.set(model, tokens); }
+        let requests = modelSeriesRequests.get(model);
+        if (!requests) { requests = []; modelSeriesRequests.set(model, requests); }
+        tokens[index] = perDay.tokens;
+        requests[index] = perDay.requests;
+      }
     }
     addCell(view.totals, dayTotals);
   }
+  const stackSeries = (source: Map<string, number[]>): Array<{ model: string; data: number[] }> =>
+    [...source.entries()]
+      .map(([model, values]) => ({ model, data: Array.from({ length: view.series.length }, (_, index) => values[index] ?? 0) }))
+      .sort((a, b) => {
+        const sum = (data: number[]) => data.reduce((sum2, value) => sum2 + value, 0);
+        return sum(b.data) - sum(a.data);
+      });
+  view.modelSeriesTokens = stackSeries(modelSeriesTokens);
+  view.modelSeriesRequests = stackSeries(modelSeriesRequests);
   view.models = [...models.entries()].map(([key, totals]) => ({ key, name: key || "", fullName: key, ...totals })).sort((a, b) => b.totalTokens - a.totalTokens);
   view.instances = [...instances.entries()].map(([key, totals]) => ({ key, name: instanceName(key), fullName: key, ...totals })).sort((a, b) => b.totalTokens - a.totalTokens);
   return view;

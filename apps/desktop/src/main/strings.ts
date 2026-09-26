@@ -17,6 +17,9 @@ interface MainStrings {
   saveSessionsZip: string;
   pickSaveDir: string;
   saveLogTitle: string;
+  usageExportTitle: string;
+  usageBudgetTitle: string;
+  usageBudgetBody: (today: string, budget: string) => string;
   noDirectory: string;
   noItems: string;
   readConversationFailed: string;
@@ -69,6 +72,9 @@ const zh: MainStrings = {
   saveSessionsZip: "导出 Codex 会话",
   pickSaveDir: "选择保存位置",
   saveLogTitle: "保存运行日志",
+  usageExportTitle: "导出 Codex 用量报表",
+  usageBudgetTitle: "Codex 用量提醒",
+  usageBudgetBody: (today: string, budget: string) => `今日 Codex 用量约 ${today} tokens，已超过每日预算 ${budget}。`,
   noDirectory: "未选择保存目录",
   noItems: "未选择要保存的会话",
   readConversationFailed: "读取会话失败",
@@ -121,6 +127,9 @@ const en: MainStrings = {
   saveSessionsZip: "Export Codex sessions",
   pickSaveDir: "Choose where to save",
   saveLogTitle: "Save application log",
+  usageExportTitle: "Export Codex usage report",
+  usageBudgetTitle: "Codex usage alert",
+  usageBudgetBody: (today: string, budget: string) => `Today's Codex usage is about ${today} tokens, over the daily budget of ${budget}.`,
   noDirectory: "No save folder selected",
   noItems: "No conversations selected",
   readConversationFailed: "Failed to read conversation",
