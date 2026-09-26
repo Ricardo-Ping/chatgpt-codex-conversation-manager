@@ -281,8 +281,11 @@ button { cursor: pointer; }
   .list-head, .row { grid-template-columns: 38px minmax(220px, 1fr) 90px; }
 }
 
-/* 统计洞察页：与 workspace/settings 同款容器约束——自身滚动、居中限宽、留出边界 */
-.stats-page { flex: 1; min-height: 0; overflow-y: auto; display: grid; gap: 16px; align-content: start; padding: 24px 28px 44px; width: 100%; max-width: 1700px; margin: 0 auto; }
+/* 统计洞察页：与 workspace/settings 同款容器约束——自身滚动、居中限宽、留出边界。
+ * 隐式列轨道固定为 minmax(0,1fr)：否则轨道按子卡片 max-content 撑宽，
+ * 窄窗口下整行卡片会溢出容器（表格"合计"列越过卡片边框的根因）。 */
+.stats-page { flex: 1; min-height: 0; overflow: hidden auto; display: grid; grid-auto-columns: minmax(0, 1fr); gap: 16px; align-content: start; padding: 24px 28px 44px; width: 100%; max-width: 1700px; margin: 0 auto; }
+.stats-page > * { min-width: 0; }
 .stats-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .stats-head h1 { font-size: 26px; margin: 0 0 5px; color: var(--heading); }
 .stats-scope { margin: 0; color: var(--text-muted); font-size: 13px; }
@@ -361,7 +364,7 @@ button { cursor: pointer; }
 .usage-tile-body span { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
 .usage-chart { margin-bottom: 14px; }
 .usage-tables { margin-bottom: 14px; }
-.usage-table-wrap { min-width: 0; padding: 13px 15px 10px; background: var(--surface); border: 1px solid var(--border-card); border-radius: 13px; }
+.usage-table-wrap { min-width: 0; padding: 13px 15px 10px; background: var(--surface); border: 1px solid var(--border-card); border-radius: 13px; overflow-x: auto; }
 .usage-table-wrap h3 { margin: 0 0 8px; font-size: 13px; color: var(--heading); }
 .usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .usage-table th { padding: 4px 8px 6px; border-bottom: 1px solid var(--border); text-align: right; color: var(--text-faint); font-weight: 600; font-size: 11px; white-space: nowrap; }
@@ -383,15 +386,21 @@ button { cursor: pointer; }
 @media (max-width: 1500px) { .usage-tiles { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 1100px) { .usage-tiles { grid-template-columns: repeat(2, 1fr); } }
 
-/* Codex 任务行：实例 / 会话 ID 元信息行 + 右侧用量徽标与文件操作 */
-.row:has(.row-side) { grid-template-columns: 42px minmax(240px, 1fr) auto; }
+/* Codex 任务行：会话 ID 元信息行 + 右侧用量徽标与文件操作。
+ * .list 声明为 inline-size 容器：列表因阅读面板/窄窗口变窄时按实际宽度
+ * 依次隐藏徽标与操作按钮，避免挤压标题。 */
+.list { container-type: inline-size; }
+.row { overflow: hidden; }
+.row:has(.row-side) { grid-template-columns: 42px minmax(140px, 1fr) auto; }
 .row-meta { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
-.row-instance { color: var(--text-muted); flex: none; }
-.row-session-id { min-width: 0; flex: 0 1 auto; font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
-.row-side { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 2px; min-width: 0; }
+.row-session-id { min-width: 0; flex: 0 1 auto; font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
+.row-side { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 2px; }
+.row-side > * { flex: none; }
 .row-side time { padding-top: 0; }
-.row-actions { display: inline-flex; gap: 2px; flex: none; }
+.row-actions { display: inline-flex; gap: 2px; }
 .row-action { width: 26px; height: 26px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--text-muted); display: grid; place-items: center; padding: 0; }
 .row-action:hover { background: var(--row-hover); color: var(--brand-text); border-color: var(--border-soft); }
 .row-action svg { width: 14px; height: 14px; display: block; }
-.usage-pill { flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; background: color-mix(in srgb, var(--chart-codex) 12%, transparent); color: var(--chart-codex); border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.usage-pill { max-width: 180px; overflow: hidden; text-overflow: ellipsis; background: color-mix(in srgb, var(--chart-codex) 12%, transparent); color: var(--chart-codex); border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@container (max-width: 620px) { .usage-pill { display: none; } }
+@container (max-width: 470px) { .row-actions { display: none; } }

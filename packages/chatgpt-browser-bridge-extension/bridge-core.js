@@ -82,7 +82,11 @@
     async resolveAccount(accountKey) {
       if (!this.auth) await this.authenticate();
       for (const row of this.auth.rows) if (await digest(row.rawId) === accountKey) return row;
-      throw new BridgeError("INCOMPATIBLE_API", "找不到匹配的 ChatGPT 账号，请重新选择账号");
+      // 浏览器登录可能已切换：SW 里缓存的账号结构是旧登录的，强制重新认证后再匹配一次。
+      // 仍找不到才报错——桌面端据此自动切换到新登录的默认账号。
+      await this.authenticate();
+      for (const row of this.auth.rows) if (await digest(row.rawId) === accountKey) return row;
+      throw new BridgeError("ACCOUNT_NOT_FOUND", "找不到匹配的 ChatGPT 账号，请重新选择账号");
     }
     headers(accountId) { return { Authorization: `Bearer ${this.auth.token}`, "ChatGPT-Account-Id": accountId, "OAI-Language": navigator.language || "zh-CN" }; }
     async list(payload) {

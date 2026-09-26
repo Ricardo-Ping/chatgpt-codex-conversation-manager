@@ -155,7 +155,13 @@ ipcMain.handle("chatgpt:cached-accounts", (event) => { requireRenderer(event); r
 ipcMain.handle("chatgpt:cache", (event, value) => { requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; return indexStore.read(requireAccount(input.accountKey), requireState(input.state)); });
 ipcMain.handle("chatgpt:list", async (event, value) => {
   requireRenderer(event); const input = value && typeof value === "object" ? value as Record<string, unknown> : {}; const accountKey = requireAccount(input.accountKey); const state = requireState(input.state); const label = typeof input.label === "string" ? input.label.slice(0, 100) : "ChatGPT"; const cached = indexStore.read(accountKey, state); const mode = chooseCacheSyncMode(cached, input.full === true);
-  const result = await bridgeRequest("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, BRIDGE_TIMEOUT_LIST_MS); if (!result.ok) throw new Error(result.error?.message || M().syncFailed);
+  const result = await bridgeRequest("list", { accountKey, state, mode, checkpoint: mode === "full" ? null : cached?.records[0]?.updatedAt ?? null }, BRIDGE_TIMEOUT_LIST_MS);
+  if (!result.ok) {
+    // 账号失配需要渲染端自动恢复：Electron IPC 会剥掉 Error 的自定义属性，
+    // 用稳定的机器前缀把扩展的 ACCOUNT_NOT_FOUND 带过去
+    const message = result.error?.code === "ACCOUNT_NOT_FOUND" ? `ACCOUNT_NOT_FOUND: ${result.error.message}` : result.error?.message;
+    throw new Error(message || M().syncFailed);
+  }
   const payload = result.payload as { records?: unknown; full?: boolean; projects?: unknown }; const records = sanitizeRecords(payload.records, state); const projects = sanitizeProjects(payload.projects); const calibrated = mode === "full" || payload.full === true; if (calibrated) await indexStore.replace(accountKey, label, state, records, true, projects); else await indexStore.merge(accountKey, label, state, records, projects); const snapshot = indexStore.read(accountKey, state); return snapshot ? { ...snapshot, syncMode: calibrated ? "full" : "incremental" } : null;
 });
 ipcMain.handle("chatgpt:preview-delete", (event, value) => { requireRenderer(event); const ids = requireIds(value); return { confirmationToken: rememberConfirmation("chatgpt", ids) }; });

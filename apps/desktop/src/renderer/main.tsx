@@ -6,11 +6,11 @@ import type { CachedConversation, PairingState } from "@conversation-manager/cha
 import type { CodexThread } from "@conversation-manager/codex-app-server-adapter";
 import type { CodexThreadUsage } from "./global.d.js";
 import { groupChatGptConversations, groupCodexConversations, isFolderGrouped, isProjectTask } from "./codex-groups.js";
-import { formatRequests, formatTokens, formatUsd, instanceName } from "./codex-usage-model.js";
+import { formatRequests, formatTokens, formatUsd } from "./codex-usage-model.js";
 import { ConversationViewerPanel, relativeTime } from "./conversation-viewer.js";
 import { initialLanguage, setLanguage, t, type Lang } from "./strings.js";
 import { Segmented } from "./segmented.js";
-import { friendlyError, message } from "./ui-format.js";
+import { friendlyError, isAccountMismatch, message } from "./ui-format.js";
 import { Settings, useExtensionDirectory, ExtensionPath } from "./settings.js";
 import { StatsPage } from "./stats.js";
 import { QuickSearch } from "./quick-search.js";
@@ -99,14 +99,29 @@ function ChatGptWorkspace({ bridge, state, onState, kind, onKind, onCounts }: { 
   const [accounts, setAccounts] = useState<Account[]>([]); const [accountKey, setAccountKey] = useState("");
   const [records, setRecords] = useState<ManagedConversation[]>([]); const [syncedAt, setSyncedAt] = useState<number | null>(null); const [compatible, setCompatible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
   const [projectNames, setProjectNames] = useState<Record<string, string>>({}); const [chatProjects, setChatProjects] = useState<Array<{ id: string; name: string }>>([]); const [projectsLoading, setProjectsLoading] = useState(false);
-  const syncingViewsRef = useRef(new Set<string>()); const currentViewRef = useRef("");
+  const syncingViewsRef = useRef(new Set<string>()); const currentViewRef = useRef(""); const accountKeyRef = useRef("");
   const autoRetriesRef = useRef(0); const autoRetryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // ref 同步必须发生在 commit 阶段（useLayoutEffect），早于任何 promise 微任务：
   // fetchState 的完成回调依赖它做新视图守卫，被动 useEffect 会留下读到旧值的微窗口
-  useLayoutEffect(() => { currentViewRef.current = `${accountKey}:${state}`; }, [accountKey, state]);
+  useLayoutEffect(() => { currentViewRef.current = `${accountKey}:${state}`; accountKeyRef.current = accountKey; }, [accountKey, state]);
   const { confirm, dialog } = useConfirm();
   useEffect(() => { void window.conversationManager.chatgpt.cachedAccounts().then((value) => { setAccounts(value.accounts); setAccountKey(value.accounts[0]?.key || ""); }); }, []);
-  useEffect(() => { if (!bridge.connected) return; void window.conversationManager.chatgpt.accounts().then((value) => { setAccounts(value.accounts); setAccountKey((old) => old || value.accounts.find((item) => item.isDefault)?.key || value.accounts[0]?.key || ""); }).catch((cause) => setError(friendlyError(cause))); }, [bridge.connected]);
+  // 连接建立/恢复时刷新实时账号列表。浏览器登录切换后，桌面端原选中的账号不在当前登录里：
+  // 自动切到新登录的默认账号——各账号缓存按 key 分桶保存，新账号首次自动完整同步，
+  // 切回旧登录时会重新选中对应桶并增量续传。
+  useEffect(() => {
+    if (!bridge.connected) return;
+    void window.conversationManager.chatgpt.accounts().then((value) => {
+      setAccounts(value.accounts);
+      const current = accountKeyRef.current;
+      if (current && value.accounts.some((item) => item.key === current)) return;
+      const next = value.accounts.find((item) => item.isDefault)?.key || value.accounts[0]?.key || "";
+      if (!next || next === current) return;
+      setAccountKey(next);
+      // 账号联动的数据 effect 会在提交后清空 notice：等它跑完再提示切换结果
+      if (current) setTimeout(() => setNotice(t("已检测到浏览器登录的 ChatGPT 账号变化，已切换到 {label}，正在同步该账号的会话…", { label: value.accounts.find((item) => item.key === next)?.label ?? "" })), 0);
+    }).catch((cause) => setError(friendlyError(cause)));
+  }, [bridge.connected, accountKey]);
   async function refreshCounts(key = accountKey): Promise<void> { if (!key) { onCounts({}); return; } const next: Partial<Record<ConversationState, { chat: number; work: number }>> = {}; for (const value of ["active", "archived", "scheduled"] as ConversationState[]) { try { const cache = await window.conversationManager.chatgpt.cached(key, value as CachedConversation["state"]); if (cache?.projects) setProjectNames((old) => ({ ...old, ...cache.projects })); const rows = cache?.records ?? []; next[value] = { chat: rows.filter((row) => !row.projectId).length, work: rows.filter((row) => Boolean(row.projectId)).length }; } catch {} } onCounts(next); }
   useEffect(() => { if (!accountKey) return; void refreshCounts(accountKey); }, [accountKey]);
   const loadProjects = useCallback((attempt = 0): void => { if (!accountKey || !bridge.connected) return; setProjectsLoading(true); void window.conversationManager.chatgpt.projects(accountKey).then((value) => { setChatProjects(value.projects); setProjectsLoading(false); void window.conversationManager.logs.info(`chatgpt projects: ${value.projects.length}${value.projects.length ? `: ${value.projects.map((project) => project.name).join(", ").slice(0, 400)}` : ""}`); }).catch(() => { if (attempt < 2) setTimeout(() => loadProjects(attempt + 1), 3000); else setProjectsLoading(false); }); }, [accountKey, bridge.connected]);
@@ -117,7 +132,22 @@ function ChatGptWorkspace({ bridge, state, onState, kind, onKind, onCounts }: { 
   useEffect(() => { if (!accountKey) return; const view = `${accountKey}:${state}`; setRecords([]); setSyncedAt(null); setNotice(""); setCompatible(false); void window.conversationManager.chatgpt.cached(accountKey, state as CachedConversation["state"]).then((cache) => { if (currentViewRef.current !== view) return; if (cache) { setRecords(cache.records.map(toChatManaged)); setSyncedAt(cache.syncedAt); if (cache.projects) setProjectNames((old) => ({ ...old, ...cache.projects })); } if (bridge.connected) void sync(false); }); }, [accountKey, state, bridge.connected]);
   useEffect(() => { if (!accountKey) return; const timer = setInterval(() => { if (document.visibilityState !== "visible" || syncingViewsRef.current.size > 0) return; void sync(false); }, BACKGROUND_SYNC_INTERVAL_MS); return () => clearInterval(timer); }, [accountKey, state, bridge.connected]);
   async function sync(full: boolean) { await fetchState(state, full, true); }
-  async function fetchState(target: ConversationState, full: boolean, visible: boolean): Promise<void> { const view = `${accountKey}:${target}`; if (!accountKey || !bridge.connected || syncingViewsRef.current.has(view)) return; syncingViewsRef.current.add(view); if (visible) { setLoading(true); setCompatible(false); setError(""); if (full) { setNotice(t("正在完整同步，项目多时可能需要几分钟…")); autoRetriesRef.current = 0; } } try { const account = accounts.find((item) => item.key === accountKey); const cache = await window.conversationManager.chatgpt.list(accountKey, account?.label || "ChatGPT", target as CachedConversation["state"], full); if (cache?.projects) setProjectNames((old) => ({ ...old, ...cache.projects })); if (visible && currentViewRef.current !== view) return; if (visible) { setRecords((cache?.records || []).map(toChatManaged)); setSyncedAt(cache?.syncedAt || null); setCompatible(true); autoRetriesRef.current = 0; if (autoRetryTimer.current) { clearTimeout(autoRetryTimer.current); autoRetryTimer.current = undefined; } const summary = full ? t("完整校准完成") : cache?.syncMode === "full" ? t("后台完整校准完成") : t("后台增量同步完成"); setNotice(`${summary}：${t("当前状态共 {n} 条会话", { n: (cache?.records || []).length })}`); } void window.conversationManager.logs.info(`chatgpt sync: state=${target}, mode=${cache?.syncMode ?? "incremental"}, n=${(cache?.records || []).length}`); void refreshCounts(); } catch (cause) { if (visible && currentViewRef.current === view) { /* 启动自动同步常撞上标签页被浏览器休眠/丢弃或扩展自更新重载——这类失败是暂时的，自动（非手动）同步最多重试 2 次（15s/30s 退避）而非立即报错 */ if (full || autoRetriesRef.current >= 2) { setError(friendlyError(cause)); } else { autoRetriesRef.current += 1; const delayS = 15 * autoRetriesRef.current; setNotice(t("自动同步暂时失败，{s} 秒后自动重试…", { s: delayS })); if (autoRetryTimer.current) clearTimeout(autoRetryTimer.current); autoRetryTimer.current = setTimeout(() => { if (currentViewRef.current === view) void fetchState(target, false, true); }, delayS * 1000); } } } finally { syncingViewsRef.current.delete(view); if (visible && currentViewRef.current === view) setLoading(false); } }
+  async function fetchState(target: ConversationState, full: boolean, visible: boolean): Promise<void> { const view = `${accountKey}:${target}`; if (!accountKey || !bridge.connected || syncingViewsRef.current.has(view)) return; syncingViewsRef.current.add(view); if (visible) { setLoading(true); setCompatible(false); setError(""); if (full) { setNotice(t("正在完整同步，项目多时可能需要几分钟…")); autoRetriesRef.current = 0; } } try { const account = accounts.find((item) => item.key === accountKey); const cache = await window.conversationManager.chatgpt.list(accountKey, account?.label || "ChatGPT", target as CachedConversation["state"], full); if (cache?.projects) setProjectNames((old) => ({ ...old, ...cache.projects })); if (visible && currentViewRef.current !== view) return; if (visible) { setRecords((cache?.records || []).map(toChatManaged)); setSyncedAt(cache?.syncedAt || null); setCompatible(true); autoRetriesRef.current = 0; if (autoRetryTimer.current) { clearTimeout(autoRetryTimer.current); autoRetryTimer.current = undefined; } const summary = full ? t("完整校准完成") : cache?.syncMode === "full" ? t("后台完整校准完成") : t("后台增量同步完成"); setNotice(`${summary}：${t("当前状态共 {n} 条会话", { n: (cache?.records || []).length })}`); } void window.conversationManager.logs.info(`chatgpt sync: state=${target}, mode=${cache?.syncMode ?? "incremental"}, n=${(cache?.records || []).length}`); void refreshCounts(); } catch (cause) { if (visible && currentViewRef.current === view) { /* 浏览器登录已切换且当前选中账号不在新登录里：自动切到新登录的默认账号，账号联动 effect 会清空旧列表并重新同步 */ if (isAccountMismatch(cause)) { setError(""); if (await switchToLiveAccount()) return; } /* 启动自动同步常撞上标签页被浏览器休眠/丢弃或扩展自更新重载——这类失败是暂时的，自动（非手动）同步最多重试 2 次（15s/30s 退避）而非立即报错 */ if (full || autoRetriesRef.current >= 2) { setError(friendlyError(cause)); } else { autoRetriesRef.current += 1; const delayS = 15 * autoRetriesRef.current; setNotice(t("自动同步暂时失败，{s} 秒后自动重试…", { s: delayS })); if (autoRetryTimer.current) clearTimeout(autoRetryTimer.current); autoRetryTimer.current = setTimeout(() => { if (currentViewRef.current === view) void fetchState(target, false, true); }, delayS * 1000); } } } finally { syncingViewsRef.current.delete(view); if (visible && currentViewRef.current === view) setLoading(false); } }
+  // 同步报「账号不存在」时的恢复：拉取浏览器当前登录的账号列表，切到其默认账号
+  async function switchToLiveAccount(): Promise<boolean> {
+    try {
+      const live = await window.conversationManager.chatgpt.accounts();
+      if (!live.accounts.length) return false;
+      if (live.accounts.some((item) => item.key === accountKey)) return false;
+      const next = live.accounts.find((item) => item.isDefault) ?? live.accounts[0];
+      if (!next) return false;
+      setAccounts(live.accounts);
+      currentViewRef.current = `${next.key}:${state}`;
+      setAccountKey(next.key);
+      setTimeout(() => setNotice(t("已检测到浏览器登录的 ChatGPT 账号变化，已切换到 {label}，正在同步该账号的会话…", { label: next.label })), 0);
+      return true;
+    } catch { return false; }
+  }
   useEffect(() => { if (!accountKey || !bridge.connected) return; const rotate = () => { if (document.visibilityState !== "visible" || syncingViewsRef.current.size > 0) return; const others = (["active", "archived", "scheduled"] as ConversationState[]).filter((value) => value !== state); void (async () => { for (const target of others) await fetchState(target, false, false); })(); }; const timer = setInterval(rotate, BACKGROUND_ROTATE_INTERVAL_MS); return () => clearInterval(timer); }, [accountKey, state, bridge.connected]);
   useEffect(() => () => { if (autoRetryTimer.current) clearTimeout(autoRetryTimer.current); }, []);
   if (!bridge.paired) return <ConnectionCard />;
@@ -227,7 +257,6 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
     const sub = props.source === "codex" ? `${record.preview ? `${record.preview} · ` : ""}${isProjectTask(record, folderExclusions) ? t("项目任务") : t("非项目任务")}` : record.projectId ? t("项目会话") : record.pinned ? t("置顶会话") : t("ChatGPT");
     const usage = props.source === "codex" ? props.usage?.[record.id] : undefined;
     const meta = props.source === "codex" ? <small className="row-meta">
-      <span className="row-instance">{record.cwd ? instanceName(record.cwd) : t("默认实例")}</span>
       <span className="row-session-id" title={record.id}>{t("会话 ID")} {shortThreadId(record.id)}</span>
     </small> : null;
     const side = props.source === "codex" ? <div className="row-side">
