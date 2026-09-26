@@ -228,7 +228,7 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
     }
     return list;
   }, [groups, visible, collapsedGroups]);
-  const virtualizer = useVirtualizer({ count: listItems.length, getScrollElement: () => listRef.current, estimateSize: (index) => listItems[index]?.type === "header" ? 40 : props.source === "codex" ? 84 : 62, overscan: 8, getItemKey: (index) => listItems[index]?.key ?? String(index) });
+  const virtualizer = useVirtualizer({ count: listItems.length, getScrollElement: () => listRef.current, estimateSize: (index) => listItems[index]?.type === "header" ? 40 : 84, overscan: 8, getItemKey: (index) => listItems[index]?.key ?? String(index) });
   const toggleOne = (id: string) => setSelected((old) => { const next = new Set(old); if (next.has(id)) { next.delete(id); } else { next.add(id); } return next; });
   async function batch(action: "archive" | "restore" | "delete") { const ids = [...selected]; if (!ids.length) return; setBusy(true); setLocalNotice(""); try { const result = await props.onBatch(action, ids); if (!result) return; setSelected(new Set([...result.failed.map((item) => item.id), ...(result.unprocessed || [])])); setLocalNotice(t("完成：成功 {s}，失败 {f}，未处理 {u}", { s: result.succeeded.length, f: result.failed.length, u: result.unprocessed?.length || 0 })); } catch (cause) { setLocalNotice(`${t("操作失败")}：${message(cause)}`); } finally { setBusy(false); } }
   const runRefresh = () => { setLocalNotice(""); return Promise.resolve(props.onRefresh()); };
@@ -256,14 +256,18 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
     const selectableRow = props.state !== "scheduled" && !record.running && record.capabilities.some((value) => value === "archive" || value === "restore" || value === "delete");
     const sub = props.source === "codex" ? `${record.preview ? `${record.preview} · ` : ""}${isProjectTask(record, folderExclusions) ? t("项目任务") : t("非项目任务")}` : record.projectId ? t("项目会话") : record.pinned ? t("置顶会话") : t("ChatGPT");
     const usage = props.source === "codex" ? props.usage?.[record.id] : undefined;
-    const meta = props.source === "codex" ? <small className="row-meta">
+    // 两个平台的会话行都展示中段省略的会话 ID（悬停显示完整 ID）
+    const meta = <small className="row-meta">
       <span className="row-session-id" title={record.id}>{t("会话 ID")} {shortThreadId(record.id)}</span>
-    </small> : null;
+    </small>;
     const side = props.source === "codex" ? <div className="row-side">
-      <RowSessionActions id={record.id} />
+      <RowSessionActions id={record.id} fileActions />
       {usage && usage.totalTokens > 0 && <span className="usage-pill" title={usagePillTitle(usage)}>{formatTokens(usage.input, "en")} / {formatTokens(usage.output, "en")} tokens</span>}
       <time title={record.updatedAt ? new Date(record.updatedAt).toLocaleString() : undefined}>{record.updatedAt ? relativeTime(record.updatedAt) : t("未知")}</time>
-    </div> : <time title={record.updatedAt ? new Date(record.updatedAt).toLocaleString() : undefined}>{record.updatedAt ? relativeTime(record.updatedAt) : t("未知")}</time>;
+    </div> : <div className="row-side">
+      <RowSessionActions id={record.id} />
+      <time title={record.updatedAt ? new Date(record.updatedAt).toLocaleString() : undefined}>{record.updatedAt ? relativeTime(record.updatedAt) : t("未知")}</time>
+    </div>;
     return <div className={`row ${selected.has(record.id) ? "selected" : ""} ${focusId === record.id ? "focused" : ""}`} key={record.id} onClick={() => { if (selectableRow && !busy) toggleOne(record.id); }} onContextMenu={(event) => { if (!props.onProjectMove) return; event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY, record }); }} onDoubleClick={() => openViewer(record)}>
       <label className="check" onClick={(event) => event.stopPropagation()}><input type="checkbox" disabled={!selectableRow || busy} checked={selected.has(record.id)} onChange={() => toggleOne(record.id)}/><span></span></label>
       <button type="button" className="row-main" onFocus={() => setFocusId(record.id)} onKeyDown={(event) => {
@@ -346,10 +350,10 @@ function ManagerLayout(props: { source: "chatgpt" | "codex"; title: string; subt
 
 // Codex 任务行右侧的会话文件操作：复制 ID / 打开所在文件夹 / 打开会话文件。
 // stopPropagation 防止触发行的选中与双击阅读。
-function RowSessionActions({ id }: { id: string }) {
+function RowSessionActions({ id, fileActions }: { id: string; fileActions?: boolean }) {
   const [copied, setCopied] = useState(false);
   // 旧 preload 热更新场景的防御：桥接方法缺失时只保留复制功能
-  const supported = typeof window.conversationManager.codex?.openSessionFile === "function";
+  const supported = fileActions && typeof window.conversationManager.codex?.openSessionFile === "function";
   const copy = (event: React.MouseEvent): void => {
     event.stopPropagation();
     void navigator.clipboard.writeText(id).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {});
